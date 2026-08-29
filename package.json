@@ -1,5 +1,5 @@
 {
-  "name": "@surface/sdk",
+  "name": "@tendrl/surface",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -28,5 +28,10 @@
     "dist",
     "src",
     "README.md"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tendrl-inc-labs/surface-js.git"
+  },
+  "homepage": "https://tendrl.com/docs/surface/sdks/"
 }

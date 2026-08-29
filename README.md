@@ -18,7 +18,7 @@ npm install github:tendrl-inc-labs/surface-js
 ## Quick Start — API Mode
 
 ```typescript
-import { SurfaceClient } from "@surface/sdk";
+import { SurfaceClient } from "@tendrl/surface";
 
 // Uses SURFACE_KEY env var automatically
 const client = new SurfaceClient();
@@ -35,7 +35,7 @@ console.log(result.safetyScore.threatLevel); // Clean, Suspicious, or Malicious
 Requires the scanner daemon running on localhost (e.g. `surface-scanner --daemon --listen=:8090`).
 
 ```typescript
-import { SurfaceClient } from "@surface/sdk";
+import { SurfaceClient } from "@tendrl/surface";
 
 const client = new SurfaceClient({
   mode: "local",
@@ -129,7 +129,7 @@ for (const result of results) {
 Express/Connect middleware that scans request bodies:
 
 ```typescript
-import { scanMiddleware } from "@surface/sdk";
+import { scanMiddleware } from "@tendrl/surface";
 
 app.use("/api", scanMiddleware(client, { reject: ["Malicious"], failOpen: true }));
 ```
@@ -137,7 +137,7 @@ app.use("/api", scanMiddleware(client, { reject: ["Malicious"], failOpen: true }
 For agent-to-agent or outbound HTTP scanning, `createSafeFetch` wraps `fetch` to scan request and/or response bodies:
 
 ```typescript
-import { createSafeFetch } from "@surface/sdk";
+import { createSafeFetch } from "@tendrl/surface";
 
 const safeFetch = createSafeFetch(client, {
   scanRequest: true,
@@ -215,7 +215,7 @@ for (const scan of history.scans) {
 ## Webhook Verification
 
 ```typescript
-import { verifyWebhookSignature } from "@surface/sdk";
+import { verifyWebhookSignature } from "@tendrl/surface";
 
 const isValid = await verifyWebhookSignature(
   requestBody,
@@ -231,7 +231,7 @@ Uses Web Crypto API when available, falls back to Node.js `crypto` module.
 ```typescript
 import express from "express";
 import multer from "multer";
-import { SurfaceClient, MaliciousFileError } from "@surface/sdk";
+import { SurfaceClient, MaliciousFileError } from "@tendrl/surface";
 
 const app = express();
 const upload = multer();
@@ -266,7 +266,7 @@ import {
   RateLimitError,
   NotFoundError,
   ValidationError,
-} from "@surface/sdk";
+} from "@tendrl/surface";
 
 try {
   const result = await client.scanFile(file);
