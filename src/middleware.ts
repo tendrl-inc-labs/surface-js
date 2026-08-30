@@ -2,10 +2,24 @@ import type { SurfaceClient } from "./client.js";
 import type { ScanResult } from "./models.js";
 
 /**
+ * True if the scan's threat level or recommended action is in `reject`.
+ * `reject` must already be lowercased; the two vocabularies don't overlap.
+ */
+function rejected(
+  reject: Set<string>,
+  score: ScanResult["safetyScore"],
+): boolean {
+  return (
+    reject.has(score.threatLevel.toLowerCase()) ||
+    reject.has(score.recommendedAction.toLowerCase())
+  );
+}
+
+/**
  * Options for configuring scan middleware behavior.
  */
 export interface ScanMiddlewareOptions {
-  /** Threat levels to block (e.g. ["Malicious", "Suspicious"]). Default: ["Malicious"]. */
+  /** Threat levels ("Malicious"/"Suspicious") or recommended actions ("Block"/"Review") to block, matched case-insensitively. Default: ["Malicious"]. */
   reject?: string[];
 
   /** Optional label for scans in history. Default: "middleware-scan". */
@@ -43,7 +57,7 @@ export function scanMiddleware(
   client: SurfaceClient,
   options?: ScanMiddlewareOptions,
 ): (req: any, res: any, next: any) => void {
-  const reject = new Set(options?.reject ?? ["Malicious"]);
+  const reject = new Set((options?.reject ?? ["Malicious"]).map((l) => l.toLowerCase()));
   const label = options?.label ?? "middleware-scan";
   const failOpen = options?.failOpen ?? true;
   const minSize = options?.minSize ?? 0;
@@ -76,7 +90,7 @@ export function scanMiddleware(
     try {
       const result = await client.scanPayload(payload, label);
 
-      if ("safetyScore" in result && reject.has(result.safetyScore.threatLevel)) {
+      if ("safetyScore" in result && rejected(reject, result.safetyScore)) {
         if (options?.onThreat) {
           options.onThreat({ path: req.path || req.url, result });
         }
@@ -144,7 +158,7 @@ export function createSafeFetch(
   client: SurfaceClient,
   options?: SafeFetchOptions,
 ): typeof globalThis.fetch {
-  const reject = new Set(options?.reject ?? ["Malicious"]);
+  const reject = new Set((options?.reject ?? ["Malicious"]).map((l) => l.toLowerCase()));
   const label = options?.label ?? "middleware-scan";
   const failOpen = options?.failOpen ?? true;
   const scanRequest = options?.scanRequest ?? true;
@@ -165,7 +179,7 @@ export function createSafeFetch(
       if (bodyStr.length > 0) {
         try {
           const result = await client.scanPayload(bodyStr, label);
-          if ("safetyScore" in result && reject.has(result.safetyScore.threatLevel)) {
+          if ("safetyScore" in result && rejected(reject, result.safetyScore)) {
             if (options?.onThreat) {
               options.onThreat({ path: url, result });
             }
@@ -194,7 +208,7 @@ export function createSafeFetch(
         const responseBody = await response.clone().text();
         if (responseBody.length > 0) {
           const result = await client.scanPayload(responseBody, label);
-          if ("safetyScore" in result && reject.has(result.safetyScore.threatLevel)) {
+          if ("safetyScore" in result && rejected(reject, result.safetyScore)) {
             if (options?.onThreat) {
               options.onThreat({ path: url, result });
             }

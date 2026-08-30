@@ -25,11 +25,13 @@ import { withScan } from "@tendrl/surface";
 // Uses SURFACE_KEY env var automatically
 const process = withScan(
   (result) => console.log(result.safetyScore.threatLevel), // Clean, Suspicious, or Malicious
-  { reject: ["Malicious", "Suspicious"] },                 // rejected files throw MaliciousFileError
+  { reject: ["Block"] },                                   // refuse what the scanner recommends blocking
 );
 
 await process(file); // you pass the file; the handler gets the result
 ```
+
+`reject` matches the recommended action (`"Block"`, `"Review"`) or the threat level (`"Malicious"`, `"Suspicious"`) — a rejected file throws `MaliciousFileError` before the handler runs.
 
 Prefer to hold the client yourself? The same scan is one method call:
 

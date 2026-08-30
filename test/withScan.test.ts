@@ -67,3 +67,17 @@ test("withScan rejects before the handler runs", async () => {
   await assert.rejects(() => process(Buffer.from("x")), MaliciousFileError);
   assert.equal(called, false);
 });
+
+test("withScan rejects on the recommended action (Block)", async () => {
+  // scoreResponse("Malicious") carries recommendedAction "Block".
+  let called = false;
+  const process = withScan(
+    () => {
+      called = true;
+    },
+    { client: clientReturning(scoreResponse("Malicious")), reject: ["Block"] },
+  );
+
+  await assert.rejects(() => process(Buffer.from("x")), MaliciousFileError);
+  assert.equal(called, false);
+});
