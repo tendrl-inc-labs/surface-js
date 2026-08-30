@@ -44,7 +44,10 @@ export interface ScanFileOptions {
   defer?: boolean;
   requestId?: string;
   filename?: string;
-  /** Threat levels to reject. Throws MaliciousFileError if the result matches. */
+  /**
+   * Threat levels ("Malicious"/"Suspicious") or recommended actions
+   * ("Block"/"Review") to reject. Throws MaliciousFileError if the result matches.
+   */
   reject?: string | string[];
 }
 
@@ -250,12 +253,17 @@ export class SurfaceClient {
     const result = ScanResultSchema.parse(json);
 
     if (options?.reject) {
-      // threatLevel is capitalized server-side ("Clean"/"Suspicious"/"Malicious");
-      // compare case-insensitively so reject: ["malicious"] matches.
+      // reject matches on threat level ("Clean"/"Suspicious"/"Malicious") or
+      // recommended action ("Allow"/"Review"/"Block") — the two vocabularies
+      // don't overlap, so one lowercased set covers both. Case-insensitive.
       const levels = (
         typeof options.reject === "string" ? [options.reject] : options.reject
       ).map((l) => l.toLowerCase());
-      if (levels.includes(result.safetyScore.threatLevel.toLowerCase())) {
+      const score = result.safetyScore;
+      if (
+        levels.includes(score.threatLevel.toLowerCase()) ||
+        levels.includes(score.recommendedAction.toLowerCase())
+      ) {
         throw new MaliciousFileError(result);
       }
     }
@@ -344,12 +352,17 @@ export class SurfaceClient {
     const result = ScanResultSchema.parse(json);
 
     if (options?.reject) {
-      // threatLevel is capitalized server-side ("Clean"/"Suspicious"/"Malicious");
-      // compare case-insensitively so reject: ["malicious"] matches.
+      // reject matches on threat level ("Clean"/"Suspicious"/"Malicious") or
+      // recommended action ("Allow"/"Review"/"Block") — the two vocabularies
+      // don't overlap, so one lowercased set covers both. Case-insensitive.
       const levels = (
         typeof options.reject === "string" ? [options.reject] : options.reject
       ).map((l) => l.toLowerCase());
-      if (levels.includes(result.safetyScore.threatLevel.toLowerCase())) {
+      const score = result.safetyScore;
+      if (
+        levels.includes(score.threatLevel.toLowerCase()) ||
+        levels.includes(score.recommendedAction.toLowerCase())
+      ) {
         throw new MaliciousFileError(result);
       }
     }

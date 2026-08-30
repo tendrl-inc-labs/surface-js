@@ -63,3 +63,6 @@ export { verifyWebhookSignature } from "./webhook.js";
 
 export { scanMiddleware, createSafeFetch } from "./middleware.js";
 export type { ScanMiddlewareOptions, SafeFetchOptions } from "./middleware.js";
+
+export { withScan } from "./withScan.js";
+export type { WithScanOptions, ScanFileInput } from "./withScan.js";
