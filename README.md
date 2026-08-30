@@ -17,6 +17,22 @@ npm install github:tendrl-inc-labs/surface-js
 
 ## Quick Start — API Mode
 
+The shortest integration is `withScan`: hand it a file, your handler receives the `ScanResult`, and files matching `reject` never reach it.
+
+```typescript
+import { withScan } from "@tendrl/surface";
+
+// Uses SURFACE_KEY env var automatically
+const process = withScan(
+  (result) => console.log(result.safetyScore.threatLevel), // Clean, Suspicious, or Malicious
+  { reject: ["Malicious", "Suspicious"] },                 // rejected files throw MaliciousFileError
+);
+
+await process(file); // you pass the file; the handler gets the result
+```
+
+Prefer to hold the client yourself? The same scan is one method call:
+
 ```typescript
 import { SurfaceClient } from "@tendrl/surface";
 
