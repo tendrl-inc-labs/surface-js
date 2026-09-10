@@ -46,8 +46,7 @@ export interface ScanMiddlewareOptions {
  *
  * @example
  * ```ts
- * import { SurfaceClient } from "@tendrl/surface";
- * import { scanMiddleware } from "@tendrl/surface/middleware";
+ * import { SurfaceClient, scanMiddleware } from "@tendrl/surface";
  *
  * const client = new SurfaceClient({ apiKey: "sfk_your_token_here" });
  * app.use("/agent", scanMiddleware(client, { reject: ["Malicious", "Suspicious"] }));

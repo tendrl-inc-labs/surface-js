@@ -132,7 +132,7 @@ test("requestId is sent as the X-Request-ID header, not a query param", async ()
   assert.ok(!captured.url?.includes("request_id"));
 });
 
-test("coverage and coverageNote survive deserialisation", async () => {
+test("coverage and coverageNote survive deserialization", async () => {
   const { client } = clientReturning(MINIMAL_COVERAGE_RESPONSE);
   const result = (await client.scanFile(Buffer.from("PK\x03\x04"))) as {
     safetyScore: { coverage?: string; coverageNote?: string; threatLevel: string };

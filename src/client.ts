@@ -446,6 +446,10 @@ export class SurfaceClient {
     allowed_types?: string;
     max_file_size?: number;
     block_malicious_ip?: boolean;
+    /** Enable the payload scan engines (prompt injection, sensitive data, ...). */
+    enable_payload_scan?: boolean;
+    /** Per-engine settings, e.g. `{ prompt_injection: { enabled: true } }`. */
+    engine_config?: Record<string, unknown>;
     webhook_url?: string;
   }): Promise<ScanProfile> {
     return this.request("/api/account/profiles", {

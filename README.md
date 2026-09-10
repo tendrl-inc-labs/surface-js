@@ -13,7 +13,7 @@ npm install github:tendrl-inc-labs/surface-js
 | Mode | Description | API Key Required | Network Required |
 |------|-------------|-----------------|-----------------|
 | **API** (default) | Sends files to the Surface API | Yes | Yes |
-| **Local** | Sends files to a local scanner daemon | Yes | No |
+| **Local** | Sends files to a local scanner daemon | No | No |
 
 ## Quick Start — API Mode
 
@@ -24,7 +24,7 @@ import { withScan } from "@tendrl/surface";
 
 // Uses SURFACE_KEY env var automatically
 const process = withScan(
-  (result) => console.log(result.safetyScore.threatLevel), // Clean, Suspicious, or Malicious
+  (result) => console.log(result.safetyScore.threatLevel), // Clean, Informational, Suspicious, or Malicious
   { reject: ["Block"] },                                   // refuse what the scanner recommends blocking
 );
 
@@ -38,14 +38,15 @@ Prefer to hold the client yourself? The same scan is one method call:
 ```typescript
 import { SurfaceClient } from "@tendrl/surface";
 
-// Uses SURFACE_KEY env var automatically
+// Uses SURFACE_KEY env var automatically; pass { apiKey: "sfk_..." } to set it explicitly
 const client = new SurfaceClient();
 
-// Or pass explicitly
-const client = new SurfaceClient({ apiKey: "sfk_your_token_here" });
-
 const result = await client.scanFile(file);
-console.log(result.safetyScore.threatLevel); // Clean, Suspicious, or Malicious
+
+// scanFile resolves to ScanResult | DeferredScanResponse, so narrow before use
+if ("safetyScore" in result) {
+  console.log(result.safetyScore.threatLevel); // Clean, Informational, Suspicious, or Malicious
+}
 ```
 
 ## Quick Start — Local Mode
@@ -61,7 +62,9 @@ const client = new SurfaceClient({
 });
 
 const result = await client.scanFile(file);
-console.log(result.safetyScore.threatLevel);
+if ("safetyScore" in result) {
+  console.log(result.safetyScore.threatLevel);
+}
 ```
 
 The same `scanFile`, `getScan`, and deferred scanning methods work in both modes.
@@ -77,7 +80,9 @@ The client checks for an API key in this order:
 export SURFACE_KEY="sfk_your_token_here"
 ```
 
-If neither is set, an `AuthenticationError` is thrown at construction time.
+In `mode: "api"` an `AuthenticationError` is thrown at construction time if neither is set.
+
+`mode: "local"` is exempt: the local scanner daemon is unauthenticated and the client never sends the key to it, so a local client constructs fine without one. A key is still needed for the hosted calls — `getUsage`, `getAccount`, the profile and API-key methods, and `getScanHistory` — which always go to the Surface API regardless of mode.
 
 ## Scanning Files
 
@@ -85,14 +90,14 @@ If neither is set, an `AuthenticationError` is thrown at construction time.
 
 ```typescript
 // Scan a file
-const result = await client.scanFile(file);
+const fromFile = await client.scanFile(file);
 
 // Node.js — from Buffer
 const buf = readFileSync("sample.exe");
-const result = await client.scanFile(buf, { filename: "sample.exe" });
+const fromBuffer = await client.scanFile(buf, { filename: "sample.exe" });
 
 // Reject malicious files — throws MaliciousFileError
-const result = await client.scanFile(file, { reject: ["Malicious", "Suspicious"] });
+const checked = await client.scanFile(file, { reject: ["Malicious", "Suspicious"] });
 
 // Deferred scan (returns immediately, poll for results)
 const deferred = await client.scanFile(largeFile, { defer: true });
@@ -107,10 +112,12 @@ Scan raw content without writing to disk. Accepts a `string`, `Buffer`, or `Uint
 
 ```typescript
 const result = await client.scanPayload("<?php system('id');", "test.php");
-console.log(result.safetyScore.threatLevel);
+if ("safetyScore" in result) {
+  console.log(result.safetyScore.threatLevel);
+}
 ```
 
-String payloads are sent as raw text to `POST /api/scan/payload` (max 10 MB). Binary payloads (`Buffer`/`Uint8Array`) are automatically base64-encoded by the SDK. Supports the same options as `scanFile`.
+String payloads are sent as raw text to `POST /api/scan/payload`. Binary payloads (`Buffer`/`Uint8Array`) are automatically base64-encoded by the SDK. Supports the same options as `scanFile`.
 
 ## Agentic Security
 
@@ -122,7 +129,7 @@ Payload scan results may include additional threat detection from agentic securi
 - **`toolCallAnalysis`** — suspicious tool/function call patterns
 
 ```typescript
-if (result.promptInjection?.detected) {
+if ("promptInjection" in result && result.promptInjection?.detected) {
   console.log("Prompt injection detected in payload");
 }
 ```
@@ -211,7 +218,7 @@ const profile = await client.createProfile({
 });
 ```
 
-New accounts automatically get three built-in profiles: **Default** (common file types, all engines), **All File Types** (all types, all engines), and **Agentic** (all types, strict sensitive data detection, auto IP blocking — optimized for agent-to-agent middleware).
+Built-in profiles are provisioned server-side; see the [scan profiles documentation](https://tendrl.com/docs/surface/profiles/) for what a new account starts with.
 
 ## API Keys
 
@@ -261,12 +268,16 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       filename: req.file.originalname,
       reject: ["Malicious"],
     });
-    res.json({ status: "clean", score: result.safetyScore.score });
+    if ("safetyScore" in result) {
+      res.json({ status: "clean", score: result.safetyScore.score });
+    } else {
+      res.status(202).json({ status: "queued", scanId: result.scanId });
+    }
   } catch (err) {
     if (err instanceof MaliciousFileError) {
       res.status(400).json({ error: "file rejected" });
     } else {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   }
 });
