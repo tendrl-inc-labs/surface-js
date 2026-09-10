@@ -1,0 +1,41 @@
+name: CI
+
+# The repo had tests but nothing ran them on push. It also builds on install
+# (prepare), so a tsc error would reach users as a failed `npm install`.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install
+        run: npm install
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      # A suite that collects nothing must not report success.
+      - name: Tests must have run
+        run: |
+          count=$(npm test 2>&1 | grep -oE '^# pass [0-9]+|pass [0-9]+' | grep -oE '[0-9]+' | head -1) || true
+          if [ "${count:-0}" -eq 0 ]; then
+            echo "::error::no tests were reported as passing"
+            exit 1
+          fi
+          echo "$count test(s) passed"
