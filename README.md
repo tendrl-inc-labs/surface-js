@@ -178,6 +178,12 @@ const res = await safeFetch("https://partner-api.example.com/data", {
 
 Options: `reject`, `label`, `failOpen`, `minSize`, `scanRequest`, `scanResponse`, `onThreat`, `onError`.
 
+`scanResponse` has no counterpart in the Go SDK, whose middleware scans requests
+only. `createSafeFetch` wraps a call you are already awaiting, so reading the
+response body before handing it back costs nothing structurally; doing the same
+inside a Go `http.Handler` would mean buffering the response in a wrapping
+`ResponseWriter` and changing the contract every downstream handler relies on.
+
 ## Account & Usage
 
 ```typescript
