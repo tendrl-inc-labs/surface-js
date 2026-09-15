@@ -46,6 +46,7 @@ test("scanPayload forwards context in the request body", async () => {
   const { client, lastBody } = verdictClient();
   const context: ActionContext = {
     principal_domains: ["acme.io"],
+    allowed_egress: ["api.stripe.com", "hooks.slack.com"],
     known_payees: [{ name: "Delta", iban: "GB29NWBK60161331926819" }],
     user_request: "pay this month's invoices",
   };
@@ -53,6 +54,7 @@ test("scanPayload forwards context in the request body", async () => {
   const ctx = lastBody().context;
   assert.ok(ctx, "context missing from body");
   assert.equal(ctx.user_request, "pay this month's invoices");
+  assert.deepEqual(ctx.allowed_egress, ["api.stripe.com", "hooks.slack.com"]);
   assert.equal(ctx.known_payees[0].iban, "GB29NWBK60161331926819");
 });
 

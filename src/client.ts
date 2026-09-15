@@ -58,6 +58,14 @@ export interface ActionPayee {
 export interface ActionContext {
   /** Domains that count as inside the organization, e.g. ["acme.io"]. */
   principal_domains?: string[];
+  /**
+   * External hosts the agent is expected to send data to (its known
+   * integrations), e.g. ["api.stripe.com", "hooks.slack.com"]. With this set,
+   * data sent to a host on neither principal_domains nor this list, and not
+   * named in user_request, is flagged for review. Left unset, ordinary
+   * third-party API calls are not judged (only bare-IP and secret egress are).
+   */
+  allowed_egress?: string[];
   /** Accounts you legitimately pay. A payment to any other account is flagged. */
   known_payees?: ActionPayee[];
   /** What the user actually asked, from your trusted UI — never lifted from the payload. */
