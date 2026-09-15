@@ -40,6 +40,30 @@ export interface SurfaceClientOptions {
   scannerUrl?: string;
 }
 
+/** An account the caller legitimately pays. Give whichever identifier your
+ * payments use; the screener matches on any provided. */
+export interface ActionPayee {
+  name?: string;
+  iban?: string;
+  account?: string;
+}
+
+/**
+ * Caller-supplied context for action screening of tool-call payloads. Lets the
+ * screener tell an action that fits who you are and what the user asked (a
+ * payment to a known payee, an email the user requested) from one that does not.
+ * Build it from trusted application state — never from the content being scanned.
+ * See the "Action Screening Context" section of the README.
+ */
+export interface ActionContext {
+  /** Domains that count as inside the organization, e.g. ["acme.io"]. */
+  principal_domains?: string[];
+  /** Accounts you legitimately pay. A payment to any other account is flagged. */
+  known_payees?: ActionPayee[];
+  /** What the user actually asked, from your trusted UI — never lifted from the payload. */
+  user_request?: string;
+}
+
 export interface ScanFileOptions {
   defer?: boolean;
   requestId?: string;
@@ -49,6 +73,11 @@ export interface ScanFileOptions {
    * ("Block"/"Review") to reject. Throws MaliciousFileError if the result matches.
    */
   reject?: string | string[];
+  /**
+   * Action-screening context for tool-call payloads. Ignored for payloads that
+   * are not tool calls. Optional; omit for face-value screening only.
+   */
+  context?: ActionContext;
 }
 
 export class SurfaceClient {
@@ -288,7 +317,7 @@ export class SurfaceClient {
   ): Promise<ScanResult | DeferredScanResponse> {
     // Auto-detect encoding: strings sent raw, binary buffers sent as base64.
     // This avoids unnecessary encoding overhead for text payloads (the common case).
-    let reqBody: { payload: string; label: string; encoding?: string };
+    let reqBody: { payload: string; label: string; encoding?: string; context?: ActionContext };
 
     if (typeof payload === "string") {
       // String — send raw (no encoding overhead)
@@ -308,6 +337,10 @@ export class SurfaceClient {
           : btoa(String.fromCharCode(...new Uint8Array(payload)));
         reqBody = { payload: b64, label, encoding: "base64" };
       }
+    }
+
+    if (options?.context) {
+      reqBody.context = options.context;
     }
 
     const body = JSON.stringify(reqBody);
