@@ -106,6 +106,10 @@ export const ScanResultSchema = z.object({
   promptInjection: z.any().optional(),
   sensitiveData: z.any().optional(),
   toolCallAnalysis: z.any().optional(),
+  // Action screening: { detected, toolCalls, findings:[{toolName, category,
+  // severity, reason, evidence}], contextual }. The reason is also mirrored in
+  // safetyScore.primaryThreat.
+  actionScreen: z.any().optional(),
 });
 export type ScanResult = z.infer<typeof ScanResultSchema>;
 
