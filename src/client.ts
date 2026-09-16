@@ -40,18 +40,10 @@ export interface SurfaceClientOptions {
   scannerUrl?: string;
 }
 
-/** An account the caller legitimately pays. Give whichever identifier your
- * payments use; the screener matches on any provided. */
-export interface ActionPayee {
-  name?: string;
-  iban?: string;
-  account?: string;
-}
-
 /**
  * Caller-supplied context for action screening of tool-call payloads. Lets the
- * screener tell an action that fits who you are and what the user asked (a
- * payment to a known payee, an email the user requested) from one that does not.
+ * screener tell an action that fits who you are and what the user asked (data
+ * going to a declared host, an email the user requested) from one that does not.
  * Build it from trusted application state — never from the content being scanned.
  * See the "Action Screening Context" section of the README.
  */
@@ -66,8 +58,6 @@ export interface ActionContext {
    * third-party API calls are not judged (only bare-IP and secret egress are).
    */
   allowed_egress?: string[];
-  /** Accounts you legitimately pay. A payment to any other account is flagged. */
-  known_payees?: ActionPayee[];
   /** What the user actually asked, from your trusted UI — never lifted from the payload. */
   user_request?: string;
 }

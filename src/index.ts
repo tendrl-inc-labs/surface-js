@@ -1,5 +1,5 @@
 export { SurfaceClient } from "./client.js";
-export type { SurfaceClientOptions, ScanFileOptions, ScanMode, ActionContext, ActionPayee } from "./client.js";
+export type { SurfaceClientOptions, ScanFileOptions, ScanMode, ActionContext } from "./client.js";
 
 export {
   SurfaceError,
