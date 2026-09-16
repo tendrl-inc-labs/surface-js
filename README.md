@@ -146,6 +146,39 @@ const result = await client.scanPayload(toolCallJson, "agent-step.json", { conte
 - `context` is optional. Omit it and screening still runs on face value — nothing dangerous on its own is missed.
 - Only what you put in `context` is sent with the scan (for hosted scans, to the API). Keep `user_request` to the instruction itself.
 
+### Guarding an agent's tool calls
+
+Action screening runs in your agent loop, around tool execution — it is not automatic. `ToolGuard` packages the propose → scan → branch pattern. Either call `screen()` and branch, or `wrap()` a tool so it screens before it runs.
+
+```typescript
+import { SurfaceClient, ToolGuard, ToolBlocked } from "@tendrl/surface";
+
+const guard = new ToolGuard(new SurfaceClient(), {
+  // context from your trusted request state, rebuilt per call, never the args
+  context: (name, args) => ({
+    principal_domains: ["acme.io"],
+    allowed_egress: ["api.stripe.com", "hooks.slack.com"],
+    user_request: session.userMessage,
+  }),
+});
+
+// Decide yourself
+const d = await guard.screen(call.name, call.args);
+if (d.blocked) return refuse(d.reason);          // d.findings has the action + evidence
+if (d.needsReview) return escalateToHuman(call, d);
+return run(call);
+
+// Or wrap the tool; it throws ToolBlocked instead of running on Block
+const safeTransfer = guard.wrap(transferFunds);
+try {
+  await safeTransfer({ to: "acct_…", amount: 4800 });
+} catch (e) {
+  if (e instanceof ToolBlocked) log(e.decision.reason, e.decision.findings);
+}
+```
+
+Pass `{ blockOnReview: true }` to make `Review` a hard stop.
+
 ## Agentic Security
 
 Payload scan results may include additional threat detection from agentic security engines. These fields are present on `ScanResult` as optional objects:

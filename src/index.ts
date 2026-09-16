@@ -1,6 +1,9 @@
 export { SurfaceClient } from "./client.js";
 export type { SurfaceClientOptions, ScanFileOptions, ScanMode, ActionContext } from "./client.js";
 
+export { ToolGuard, Decision, ToolBlocked, toolCallJson } from "./guard.js";
+export type { ContextSource, ToolGuardOptions, ToolFinding } from "./guard.js";
+
 export {
   SurfaceError,
   AuthenticationError,
