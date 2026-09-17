@@ -143,7 +143,7 @@ const result = await client.scanPayload(toolCallJson, "agent-step.json", { conte
 **Suggested implementation**
 
 - Build `context` from your **trusted application state** — your configured domains, your known integration hosts, the user's message from your own UI. **Never** populate it from the payload being scanned; that would let an attacker vouch for their own request.
-- `context` is optional. Omit it and screening still runs on face value — nothing dangerous on its own is missed.
+- `context` is optional. Pass only the fields you have; those values are validated (a domain list must be an array of strings). Omit it and screening still runs on face value — nothing dangerous on its own is missed.
 - Only what you put in `context` is sent with the scan (for hosted scans, to the API). Keep `user_request` to the instruction itself.
 
 ### Guarding an agent's tool calls
