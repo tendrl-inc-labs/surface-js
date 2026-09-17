@@ -40,11 +40,21 @@ export interface SurfaceClientOptions {
   scannerUrl?: string;
 }
 
+const hostList = z.array(z.string());
+
+/** Runtime check: fields are optional; values that are passed must be well-formed. */
+export const ActionContextSchema = z.object({
+  principal_domains: hostList.optional(),
+  allowed_egress: hostList.optional(),
+  user_request: z.string().optional(),
+});
+
 /**
  * Caller-supplied context for action screening of tool-call payloads. Lets the
  * screener tell an action that fits who you are and what the user asked (data
  * going to a declared host, an email the user requested) from one that does not.
  * Build it from trusted application state — never from the content being scanned.
+ * Every field is optional; values that are passed are validated.
  * See the "Action Screening Context" section of the README.
  */
 export interface ActionContext {
@@ -338,7 +348,11 @@ export class SurfaceClient {
     }
 
     if (options?.context) {
-      reqBody.context = options.context;
+      const parsed = ActionContextSchema.safeParse(options.context);
+      if (!parsed.success) {
+        throw new ValidationError(parsed.error.issues.map((i) => i.message).join("; "));
+      }
+      reqBody.context = parsed.data;
     }
 
     const body = JSON.stringify(reqBody);
