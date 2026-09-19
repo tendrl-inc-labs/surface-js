@@ -82,7 +82,7 @@ export SURFACE_KEY="sfk_your_token_here"
 
 In `mode: "api"` an `AuthenticationError` is thrown at construction time if neither is set.
 
-`mode: "local"` is exempt: the local scanner daemon is unauthenticated and the client never sends the key to it, so a local client constructs fine without one. A key is still needed for the hosted calls — `getUsage`, `getAccount`, the profile and API-key methods, and `getScanHistory` — which always go to the Surface API regardless of mode.
+`mode: "local"` is exempt: the local scanner daemon is unauthenticated and the client never sends the key to it, so a local client constructs fine without one. A key is still needed for the hosted calls — `getUsage`, `getAccount`, and `getScanHistory` — which always go to the Surface API regardless of mode.
 
 ## Scanning Files
 
@@ -252,46 +252,9 @@ console.log(`${usage.scans_used}/${usage.max_scans} scans used this period (${us
 const account = await client.getAccount();
 ```
 
-## Scan Profiles
+## Profiles and API Keys
 
-```typescript
-const profiles = await client.listProfiles();
-
-const profile = await client.createProfile({
-  name: "Images Only",
-  allowed_types: "jpg,jpeg,png,gif,webp",
-});
-
-await client.updateProfile(profile.id, { name: "Images & PDFs" });
-await client.deleteProfile(profile.id);
-```
-
-### Profile Engine Configuration
-
-Control which engines run and configure per-engine settings via `engine_config`:
-
-```typescript
-const profile = await client.createProfile({
-  name: "Agentic Intake",
-  allowed_types: "json,txt,md",
-  enable_payload_scan: true,
-  engine_config: {
-    prompt_injection: { enabled: true },
-    sensitive_data: { enabled: true, mask_output: true },
-    ml: { threshold: 0.8 },
-  },
-});
-```
-
-Built-in profiles are provisioned server-side; see the [scan profiles documentation](https://tendrl.com/docs/surface/scan-profiles/) for what a new account starts with.
-
-## API Keys
-
-```typescript
-const keys = await client.listApiKeys();
-const newKey = await client.createApiKey({ label: "Production" });
-await client.deleteApiKey(keyId);
-```
+The SDK doesn't manage scan profiles or API keys. Each key is bound to a profile, and scans use it automatically, so scanning code never needs to choose one. Create and edit profiles and keys in the Surface dashboard, the [REST API](https://tendrl.com/docs/surface/api/), or the [Surface MCP tools](https://tendrl.com/docs/surface/ai/mcp-server/). See [scan profiles](https://tendrl.com/docs/surface/scan-profiles/) for what each setting does.
 
 ## Scan History
 

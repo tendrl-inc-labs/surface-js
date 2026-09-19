@@ -12,14 +12,10 @@ import {
   ScanResultSchema,
   DeferredScanResponseSchema,
   UsageSchema,
-  ScanProfileSchema,
-  APIKeySchema,
   ScanHistoryPageSchema,
   type ScanResult,
   type DeferredScanResponse,
   type Usage,
-  type ScanProfile,
-  type APIKey,
   type ScanHistoryPage,
 } from "./models.js";
 
@@ -472,99 +468,6 @@ export class SurfaceClient {
    */
   async getAccount(): Promise<unknown> {
     return this.request("/api/account");
-  }
-
-  /**
-   * List all scan profiles for the current account.
-   */
-  async listProfiles(): Promise<ScanProfile[]> {
-    return this.request("/api/account/profiles", {
-      schema: z.array(ScanProfileSchema),
-    });
-  }
-
-  /**
-   * Create a new scan profile.
-   */
-  async createProfile(params: {
-    name: string;
-    allowed_types?: string;
-    max_file_size?: number;
-    block_malicious_ip?: boolean;
-    /** Enable the payload scan engines (prompt injection, sensitive data, ...). */
-    enable_payload_scan?: boolean;
-    /** Per-engine settings, e.g. `{ prompt_injection: { enabled: true } }`. */
-    engine_config?: Record<string, unknown>;
-    webhook_url?: string;
-  }): Promise<ScanProfile> {
-    return this.request("/api/account/profiles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-      schema: ScanProfileSchema,
-    });
-  }
-
-  /**
-   * Update an existing scan profile.
-   */
-  async updateProfile(
-    profileId: string,
-    params: Record<string, unknown>,
-  ): Promise<ScanProfile> {
-    return this.request(
-      `/api/account/profiles/${encodeURIComponent(profileId)}`,
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-        schema: ScanProfileSchema,
-      },
-    );
-  }
-
-  /**
-   * Delete a scan profile.
-   */
-  async deleteProfile(profileId: string): Promise<void> {
-    return this.request(
-      `/api/account/profiles/${encodeURIComponent(profileId)}`,
-      { method: "DELETE" },
-    );
-  }
-
-  /**
-   * List all API keys for the current account.
-   */
-  async listApiKeys(): Promise<APIKey[]> {
-    return this.request("/api/account/keys", {
-      schema: z.array(APIKeySchema),
-    });
-  }
-
-  /**
-   * Create a new API key.
-   */
-  async createApiKey(params: {
-    label: string;
-    profile_id?: string;
-  }): Promise<APIKey> {
-    return this.request("/api/account/keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-      schema: APIKeySchema,
-    });
-  }
-
-  /**
-   * Delete an API key.
-   */
-  async deleteApiKey(keyId: string): Promise<void> {
-    return this.request(
-      `/api/account/keys/${encodeURIComponent(keyId)}`,
-      { method: "DELETE" },
-    );
   }
 
   /**

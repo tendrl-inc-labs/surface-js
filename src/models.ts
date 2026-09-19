@@ -184,36 +184,6 @@ export const UsageSchema = z.object({
 });
 export type Usage = z.infer<typeof UsageSchema>;
 
-export const ScanProfileSchema = z.object({
-  id: z.string(),
-  account_id: z.string(),
-  name: z.string(),
-  is_default: z.boolean(),
-  allowed_types: z.string(),
-  max_file_size: z.number(),
-  block_malicious_ip: z.boolean(),
-  enable_payload_scan: z.boolean().default(true),
-  engine_config: z.record(z.any()).optional(),
-  webhook_url: z.string(),
-  webhook_api_key: z.string(),
-  created_at: z.string(),
-  updated_at: z.string(),
-});
-export type ScanProfile = z.infer<typeof ScanProfileSchema>;
-
-export const APIKeySchema = z.object({
-  id: z.string(),
-  account_id: z.string(),
-  profile_id: z.string(),
-  key_id: z.string(),
-  key_value: z.string().optional(),
-  label: z.string(),
-  last_used_at: z.string().optional(),
-  created_at: z.string(),
-  profile_name: z.string().optional(),
-});
-export type APIKey = z.infer<typeof APIKeySchema>;
-
 export const ScanHistoryEntrySchema = z.object({
   id: z.string(),
   account_id: z.string(),
