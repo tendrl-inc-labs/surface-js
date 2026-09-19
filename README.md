@@ -153,14 +153,7 @@ Action screening runs in your agent loop, around tool execution — it is not au
 ```typescript
 import { SurfaceClient, ToolGuard, ToolBlocked } from "@tendrl/surface";
 
-const guard = new ToolGuard(new SurfaceClient(), {
-  // context from your trusted request state, rebuilt per call, never the args
-  context: (name, args) => ({
-    principal_domains: ["acme.io"],
-    allowed_egress: ["api.stripe.com", "hooks.slack.com"],
-    user_request: session.userMessage,
-  }),
-});
+const guard = new ToolGuard(new SurfaceClient());
 
 // Decide yourself
 const d = await guard.screen(call.name, call.args);
@@ -177,7 +170,17 @@ try {
 }
 ```
 
-Pass `{ blockOnReview: true }` to make `Review` a hard stop.
+Context is optional. Pass the fields you have from trusted app state — never from the tool arguments. A function is only needed if the values change per call. Pass `{ blockOnReview: true }` to make `Review` a hard stop.
+
+```typescript
+const guard = new ToolGuard(new SurfaceClient(), {
+  context: {
+    principal_domains: ["acme.io"],
+    allowed_egress: ["api.stripe.com", "hooks.slack.com"],
+    user_request: session.userMessage,
+  },
+});
+```
 
 ## Agentic Security
 
@@ -216,7 +219,7 @@ Express/Connect middleware that scans request bodies:
 ```typescript
 import { scanMiddleware } from "@tendrl/surface";
 
-app.use("/api", scanMiddleware(client, { reject: ["Malicious"], failOpen: true }));
+app.use("/api", scanMiddleware(client));
 ```
 
 For agent-to-agent or outbound HTTP scanning, `createSafeFetch` wraps `fetch` to scan request and/or response bodies:
@@ -224,11 +227,7 @@ For agent-to-agent or outbound HTTP scanning, `createSafeFetch` wraps `fetch` to
 ```typescript
 import { createSafeFetch } from "@tendrl/surface";
 
-const safeFetch = createSafeFetch(client, {
-  scanRequest: true,
-  scanResponse: true,
-  reject: ["Malicious"],
-});
+const safeFetch = createSafeFetch(client);
 
 const res = await safeFetch("https://partner-api.example.com/data", {
   method: "POST",
