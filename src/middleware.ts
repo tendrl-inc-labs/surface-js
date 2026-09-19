@@ -48,8 +48,8 @@ export interface ScanMiddlewareOptions {
  * ```ts
  * import { SurfaceClient, scanMiddleware } from "@tendrl/surface";
  *
- * const client = new SurfaceClient({ apiKey: "sfk_your_token_here" });
- * app.use("/agent", scanMiddleware(client, { reject: ["Malicious", "Suspicious"] }));
+ * const client = new SurfaceClient();
+ * app.use("/agent", scanMiddleware(client));
  * ```
  */
 export function scanMiddleware(
@@ -140,11 +140,7 @@ export interface SafeFetchOptions extends ScanMiddlewareOptions {
  *
  * @example
  * ```ts
- * const safeFetch = createSafeFetch(client, {
- *   scanRequest: true,
- *   scanResponse: true,
- *   reject: ["Malicious"],
- * });
+ * const safeFetch = createSafeFetch(client);
  *
  * // Use like normal fetch — scanning happens automatically
  * const res = await safeFetch("https://agent-b.example.com/api/chat", {
