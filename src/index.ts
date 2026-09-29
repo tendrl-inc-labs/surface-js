@@ -1,8 +1,20 @@
-export { SurfaceClient } from "./client.js";
-export type { SurfaceClientOptions, ScanFileOptions, ScanMode, ActionContext } from "./client.js";
+export { SurfaceClient, STRICTNESS_LEVELS } from "./client.js";
+export type {
+  SurfaceClientOptions,
+  ScanFileOptions,
+  ScanMode,
+  ActionContext,
+  StrictnessLevel,
+} from "./client.js";
 
-export { ToolGuard, Decision, ToolBlocked, toolCallJson } from "./guard.js";
-export type { ContextSource, ToolGuardOptions, ToolFinding } from "./guard.js";
+export { ToolGuard, Decision, ToolBlocked, ToolNeedsReview, toolCallJson } from "./guard.js";
+export type {
+  ContextSource,
+  ToolGuardOptions,
+  ToolFinding,
+  ReviewPolicy,
+  ScreenOptions,
+} from "./guard.js";
 
 export {
   SurfaceError,
