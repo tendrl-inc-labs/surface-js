@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { SurfaceClient, type ActionContext } from "../src/index.js";
+import { SurfaceClient, ValidationError, type ActionContext } from "../src/index.js";
 
 function resp(threatLevel: string, recommendedAction: string) {
   return {
@@ -27,7 +27,7 @@ function resp(threatLevel: string, recommendedAction: string) {
 }
 
 /** A client whose fetch verdict depends on the request body it receives. */
-function verdictClient(): { client: SurfaceClient; lastBody: () => any } {
+function verdictClient(opts: { strictness?: ActionContext["strictness"] } = {}): { client: SurfaceClient; lastBody: () => any } {
   let body: any = {};
   const fetchImpl = (async (_url: string, init?: RequestInit) => {
     body = JSON.parse(String(init?.body ?? "{}"));
@@ -40,7 +40,7 @@ function verdictClient(): { client: SurfaceClient; lastBody: () => any } {
       headers: { "content-type": "application/json" },
     });
   }) as unknown as typeof globalThis.fetch;
-  const client = new SurfaceClient({ apiKey: "sfk_test", fetch: fetchImpl });
+  const client = new SurfaceClient({ apiKey: "sfk_test", fetch: fetchImpl, ...opts });
   return { client, lastBody: () => body };
 }
 
@@ -93,4 +93,36 @@ test("context flips an egress verdict Allow<->Review through the SDK", async () 
   const c2 = verdictClient();
   const without = await c2.client.scanPayload(payload, "p.json");
   assert.equal((without as any).safetyScore.recommendedAction, "Allow");
+});
+
+test("strictness is validated and sent in the payload context", async () => {
+  for (const level of ["relaxed", "balanced", "strict"] as const) {
+    const { client, lastBody } = verdictClient();
+    await client.scanPayload("{}", "x", { context: { principal_domains: ["acme.io"], strictness: level } });
+    assert.deepEqual(lastBody().context, { principal_domains: ["acme.io"], strictness: level });
+  }
+  for (const bad of ["Strict", "stirct", "high", 1]) {
+    const { client } = verdictClient();
+    await assert.rejects(
+      () => client.scanPayload("{}", "x", { context: { strictness: bad } as unknown as ActionContext }),
+      (e: unknown) => e instanceof ValidationError,
+    );
+  }
+});
+
+test("client strictness fills the context only where it is unset", async () => {
+  const { client, lastBody } = verdictClient({ strictness: "strict" });
+  await client.scanPayload("{}", "a.json");
+  assert.deepEqual(lastBody().context, { strictness: "strict" });
+  await client.scanPayload("{}", "b.json", { context: { principal_domains: ["acme.io"] } });
+  assert.deepEqual(lastBody().context, { principal_domains: ["acme.io"], strictness: "strict" });
+  await client.scanPayload("{}", "c.json", { context: { strictness: "relaxed" } });
+  assert.deepEqual(lastBody().context, { strictness: "relaxed" });
+});
+
+test("invalid client strictness throws at construction", () => {
+  assert.throws(
+    () => new SurfaceClient({ apiKey: "sfk_test", strictness: "high" as never }),
+    (e: unknown) => e instanceof ValidationError,
+  );
 });

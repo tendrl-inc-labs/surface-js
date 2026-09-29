@@ -134,6 +134,25 @@ const context: ActionContext = {
 const result = await client.scanPayload(toolCallJson, "agent-step.json", { context });
 ```
 
+**Strictness**
+
+`strictness` sets how readily a judgment call turns into a verdict. Face-dangerous actions (a public share, a secret in a URL, destructive commands) Block at every level.
+
+- **`relaxed`** — stop only what's certainly malicious.
+- **`balanced`** (default) — stop what's certainly malicious, ask before risky or irreversible actions.
+- **`strict`** — ask or stop on anything that needs judgment, including mail to personal addresses and outside recipients.
+
+```typescript
+await client.scanPayload(toolCallJson, "agent-step.json", {
+  context: { principal_domains: ["acme.io"], user_request: userMessage, strictness: "strict" },
+});
+
+// Or set a default for every scanPayload; a context with its own strictness wins.
+const strictClient = new SurfaceClient({ strictness: "strict" });
+```
+
+Omit `strictness` and you get `balanced`, so an agent with no configuration isn't stopped while it does routine work. An invalid level throws a `ValidationError`. See the [Python SDK README](https://github.com/tendrl-inc-labs/surface-python#action-screening-context) for the full per-level table.
+
 **Use cases**
 
 - **Data egress** — an email or upload leaving `principal_domains` (or to a free-mail address) is flagged; a recipient the user named in `user_request` is cleared. With `allowed_egress` set, an HTTP POST of data to a host on neither list is flagged for review, so a Stripe or Slack call passes while a POST to an unknown endpoint is caught; a bare-IP destination or a secret in the body is flagged even without it.
@@ -143,7 +162,7 @@ const result = await client.scanPayload(toolCallJson, "agent-step.json", { conte
 **Suggested implementation**
 
 - Build `context` from your **trusted application state** — your configured domains, your known integration hosts, the user's message from your own UI. **Never** populate it from the payload being scanned; that would let an attacker vouch for their own request.
-- `context` is optional. Pass only the fields you have; those values are validated (a domain list must be an array of strings). Omit it and screening still runs on face value — nothing dangerous on its own is missed.
+- `context` is optional. Pass only the fields you have; those values are validated (a domain list must be an array of strings, `strictness` must be one of the three levels). Omit it and screening still runs on face value — nothing dangerous on its own is missed.
 - Only what you put in `context` is sent with the scan (for hosted scans, to the API). Keep `user_request` to the instruction itself.
 
 ### Guarding an agent's tool calls
@@ -151,7 +170,7 @@ const result = await client.scanPayload(toolCallJson, "agent-step.json", { conte
 Action screening runs in your agent loop, around tool execution — it is not automatic. `ToolGuard` packages the propose → scan → branch pattern. Either call `screen()` and branch, or `wrap()` a tool so it screens before it runs.
 
 ```typescript
-import { SurfaceClient, ToolGuard, ToolBlocked } from "@tendrl/surface";
+import { SurfaceClient, ToolGuard, ToolBlocked, ToolNeedsReview } from "@tendrl/surface";
 
 const guard = new ToolGuard(new SurfaceClient());
 
@@ -161,16 +180,19 @@ if (d.blocked) return refuse(d.reason);          // d.findings has the action + 
 if (d.needsReview) return escalateToHuman(call, d);
 return run(call);
 
-// Or wrap the tool; it throws ToolBlocked instead of running on Block
+// Or wrap the tool; it throws instead of running on Block, and holds on Review
 const safeTransfer = guard.wrap(transferFunds);
 try {
   await safeTransfer({ to: "acct_…", amount: 4800 });
 } catch (e) {
-  if (e instanceof ToolBlocked) log(e.decision.reason, e.decision.findings);
+  if (e instanceof ToolNeedsReview) askUser(e.decision);   // a person should confirm
+  else if (e instanceof ToolBlocked) log(e.decision.reason, e.decision.findings);
 }
 ```
 
-Context is optional. Pass the fields you have from trusted app state — never from the tool arguments. A function is only needed if the values change per call. Pass `{ blockOnReview: true }` to make `Review` a hard stop.
+Review means a person should confirm the action. A wrapped tool is held on Review by default: it throws `ToolNeedsReview`, which extends `ToolBlocked`, so an existing `catch (e instanceof ToolBlocked)` still stops it. Set `onReview` to change that: `"allow"` runs it, or pass a function that gets the `Decision` and returns (or resolves to) `true` to run it — ask the user there. A Block never runs. `blockOnReview` still works as the older spelling (`true` is `"hold"`, `false` is `"allow"`) and overrides `onReview` when set.
+
+Context is optional. Pass the fields you have from trusted app state — never from the tool arguments. A function is only needed if the values change per call. `strictness` applies to every call unless the context sets its own, and `d.strictness` reports the level a call was screened at (`"balanced"` when unset). `screen(name, args, { userRequest })` fills `user_request` only when the context has none — handy for passing the run's prompt from a framework hook.
 
 ```typescript
 const guard = new ToolGuard(new SurfaceClient(), {
@@ -179,6 +201,8 @@ const guard = new ToolGuard(new SurfaceClient(), {
     allowed_egress: ["api.stripe.com", "hooks.slack.com"],
     user_request: session.userMessage,
   },
+  strictness: "balanced",
+  onReview: async (d) => confirmWithUser(d.reason),
 });
 ```
 

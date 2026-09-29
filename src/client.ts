@@ -34,6 +34,30 @@ export interface SurfaceClientOptions {
   mode?: ScanMode;
   /** URL of the local scanner daemon. Default: "http://127.0.0.1:8090". Only used in "local" mode. */
   scannerUrl?: string;
+  /**
+   * Default `ActionContext.strictness` for `scanPayload`. A context that sets
+   * its own `strictness` wins. Omitted, the scanner uses "balanced".
+   */
+  strictness?: StrictnessLevel;
+}
+
+/** Accepted `ActionContext.strictness` values. */
+export const STRICTNESS_LEVELS = ["relaxed", "balanced", "strict"] as const;
+
+/**
+ * How readily a judgment call becomes a verdict. relaxed: stop only what is
+ * certainly malicious. balanced (the scanner default): also ask before risky
+ * or irreversible actions. strict: ask or stop on anything that needs judgment.
+ */
+export type StrictnessLevel = (typeof STRICTNESS_LEVELS)[number];
+
+/** Throws ValidationError unless `value` is undefined or a strictness level. */
+export function checkStrictness(value: unknown): StrictnessLevel | undefined {
+  if (value === undefined) return undefined;
+  if (!(STRICTNESS_LEVELS as readonly unknown[]).includes(value)) {
+    throw new ValidationError(`strictness must be one of ${STRICTNESS_LEVELS.join(", ")}`);
+  }
+  return value as StrictnessLevel;
 }
 
 const hostList = z.array(z.string());
@@ -43,6 +67,7 @@ export const ActionContextSchema = z.object({
   principal_domains: hostList.optional(),
   allowed_egress: hostList.optional(),
   user_request: z.string().optional(),
+  strictness: z.enum(STRICTNESS_LEVELS).optional(),
 });
 
 /**
@@ -66,6 +91,12 @@ export interface ActionContext {
   allowed_egress?: string[];
   /** What the user actually asked, from your trusted UI — never lifted from the payload. */
   user_request?: string;
+  /**
+   * "relaxed" | "balanced" | "strict": how readily a judgment call becomes a
+   * verdict. Face-dangerous actions Block at every level. Omitted, the scanner
+   * uses "balanced".
+   */
+  strictness?: StrictnessLevel;
 }
 
 export interface ScanFileOptions {
@@ -90,8 +121,11 @@ export class SurfaceClient {
   private fetch: typeof globalThis.fetch;
   private mode: ScanMode;
   private scannerUrl: string;
+  /** Default strictness filled into `scanPayload` contexts that leave it unset. */
+  readonly strictness: StrictnessLevel | undefined;
 
   constructor(options: SurfaceClientOptions = {}) {
+    this.strictness = checkStrictness(options.strictness);
     this.mode = options.mode ?? "api";
     this.scannerUrl = (options.scannerUrl ?? "http://127.0.0.1:8090").replace(/\/$/, "");
     this.fetch = options.fetch ?? globalThis.fetch;
@@ -343,8 +377,13 @@ export class SurfaceClient {
       }
     }
 
-    if (options?.context) {
-      const parsed = ActionContextSchema.safeParse(options.context);
+    // The client's strictness fills only a context that leaves it unset.
+    let context = options?.context;
+    if (this.strictness && context?.strictness === undefined) {
+      context = { ...context, strictness: this.strictness };
+    }
+    if (context) {
+      const parsed = ActionContextSchema.safeParse(context);
       if (!parsed.success) {
         throw new ValidationError(parsed.error.issues.map((i) => i.message).join("; "));
       }

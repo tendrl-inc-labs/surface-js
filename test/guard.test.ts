@@ -5,6 +5,8 @@ import {
   SurfaceClient,
   ToolGuard,
   ToolBlocked,
+  ToolNeedsReview,
+  ValidationError,
   toolCallJson,
   type ActionContext,
   type ToolGuardOptions,
@@ -105,10 +107,103 @@ test("wrap throws ToolBlocked and does not run on Block", async () => {
   assert.equal(ran, false);
 });
 
-test("Review runs by default but blocks when configured", async () => {
-  const run = guardWith("Review").guard.wrap(() => "ok", "t");
+test("Review is held by default: ToolNeedsReview, a ToolBlocked, tool not run", async () => {
+  let ran = false;
+  const held = guardWith("Review", { primaryThreat: "needs a look" }).guard.wrap(() => {
+    ran = true;
+    return "ok";
+  }, "t");
+  await assert.rejects(held(), (e: unknown) => {
+    assert.ok(e instanceof ToolNeedsReview);
+    assert.ok(e instanceof ToolBlocked);
+    assert.equal(e.name, "ToolNeedsReview");
+    assert.ok(e.decision.needsReview);
+    return true;
+  });
+  assert.equal(ran, false);
+});
+
+test('onReview "allow" runs a Review', async () => {
+  const run = guardWith("Review", { guard: { onReview: "allow" } }).guard.wrap(() => "ok", "t");
+  assert.equal(await run(), "ok");
+});
+
+test("onReview callback decides a Review (sync and async)", async () => {
+  const seen: string[] = [];
+  const yes = guardWith("Review", {
+    guard: { onReview: (d) => { seen.push(d.action); return true; } },
+  }).guard.wrap(() => "ok", "t");
+  assert.equal(await yes(), "ok");
+  assert.deepEqual(seen, ["Review"]);
+
+  const no = guardWith("Review", { guard: { onReview: () => false } }).guard.wrap(() => "ok", "t");
+  await assert.rejects(no(), (e: unknown) => e instanceof ToolNeedsReview);
+
+  const asyncYes = guardWith("Review", { guard: { onReview: async () => true } }).guard.wrap(() => "ok", "t");
+  assert.equal(await asyncYes(), "ok");
+
+  const asyncNo = guardWith("Review", { guard: { onReview: async () => false } }).guard.wrap(() => "ok", "t");
+  await assert.rejects(asyncNo(), (e: unknown) => e instanceof ToolNeedsReview);
+});
+
+test("Block never runs, even with onReview allow or a yes callback", async () => {
+  for (const onReview of ["allow", () => true] as const) {
+    let ran = false;
+    const run = guardWith("Block", { guard: { onReview } }).guard.wrap(() => {
+      ran = true;
+    }, "t");
+    await assert.rejects(run(), (e: unknown) => e instanceof ToolBlocked && !(e instanceof ToolNeedsReview));
+    assert.equal(ran, false);
+  }
+});
+
+test("blockOnReview still works and overrides onReview", async () => {
+  const run = guardWith("Review", { guard: { blockOnReview: false } }).guard.wrap(() => "ok", "t");
   assert.equal(await run(), "ok");
 
-  const strict = guardWith("Review", { guard: { blockOnReview: true } }).guard.wrap(() => "ok", "t");
-  await assert.rejects(strict(), (e: unknown) => e instanceof ToolBlocked);
+  const held = guardWith("Review", { guard: { blockOnReview: true, onReview: "allow" } }).guard.wrap(() => "ok", "t");
+  await assert.rejects(held(), (e: unknown) => e instanceof ToolBlocked);
+
+  const allowed = guardWith("Review", { guard: { blockOnReview: false, onReview: "hold" } }).guard.wrap(() => "ok", "t");
+  assert.equal(await allowed(), "ok");
+});
+
+test("invalid guard options throw", () => {
+  assert.throws(
+    () => guardWith("Allow", { guard: { strictness: "stirct" as never } }),
+    (e: unknown) => e instanceof ValidationError,
+  );
+  assert.throws(
+    () => guardWith("Allow", { guard: { onReview: "block" as never } }),
+    (e: unknown) => e instanceof ValidationError,
+  );
+});
+
+test("guard strictness fills the context unless the context sets it", async () => {
+  const a = guardWith("Allow", { guard: { strictness: "strict" } });
+  const d = await a.guard.screen("t", {});
+  assert.deepEqual(a.lastBody().context, { strictness: "strict" });
+  assert.equal(d.strictness, "strict");
+
+  const b = guardWith("Allow", { guard: { strictness: "strict", context: { user_request: "pay the vendor" } } });
+  await b.guard.screen("t", {});
+  assert.deepEqual(b.lastBody().context, { user_request: "pay the vendor", strictness: "strict" });
+
+  const c = guardWith("Allow", { guard: { strictness: "strict", context: { strictness: "relaxed" } } });
+  const dc = await c.guard.screen("t", {});
+  assert.equal(c.lastBody().context.strictness, "relaxed");
+  assert.equal(dc.strictness, "relaxed");
+
+  const none = guardWith("Allow");
+  assert.equal((await none.guard.screen("t", {})).strictness, "balanced");
+});
+
+test("screen userRequest fills only a missing request", async () => {
+  const a = guardWith("Allow");
+  await a.guard.screen("t", {}, { userRequest: "delete my drafts" });
+  assert.equal(a.lastBody().context.user_request, "delete my drafts");
+
+  const b = guardWith("Allow", { guard: { context: { user_request: "pay the vendor" } } });
+  await b.guard.screen("t", {}, { userRequest: "something else" });
+  assert.equal(b.lastBody().context.user_request, "pay the vendor");
 });
