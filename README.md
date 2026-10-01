@@ -192,6 +192,8 @@ try {
 
 Review means a person should confirm the action. A wrapped tool is held on Review by default: it throws `ToolNeedsReview`, which extends `ToolBlocked`, so an existing `catch (e instanceof ToolBlocked)` still stops it. Set `onReview` to change that: `"allow"` runs it, or pass a function that gets the `Decision` and returns (or resolves to) `true` to run it — ask the user there. A Block never runs. `blockOnReview` still works as the older spelling (`true` is `"hold"`, `false` is `"allow"`) and overrides `onReview` when set.
 
+`d.riskProbability` (0–1) and `d.riskReasons` report the action-risk score when the scanner returns `result.actionRisk`; they are `undefined` and `[]` otherwise. They are informational and never change `d.action`.
+
 Context is optional. Pass the fields you have from trusted app state — never from the tool arguments. A function is only needed if the values change per call. `strictness` applies to every call unless the context sets its own, and `d.strictness` reports the level a call was screened at (`"balanced"` when unset). `screen(name, args, { userRequest })` fills `user_request` only when the context has none — handy for passing the run's prompt from a framework hook.
 
 ```typescript
@@ -214,6 +216,7 @@ Payload scan results may include additional threat detection from agentic securi
 - **`promptInjection`** — prompt injection attempts detected in text content
 - **`sensitiveData`** — exposed credentials, API keys, or PII
 - **`toolCallAnalysis`** — suspicious tool/function call patterns
+- **`actionRisk`** — for tool-call payloads, a calibrated `probability` (0–1) that the call is harmful, with `reasons`, the engine's own `action`, and `mode` (`"shadow"` does not affect the verdict). Absent when the feature is off or the payload is not a tool call.
 
 ```typescript
 if ("promptInjection" in result && result.promptInjection?.detected) {
