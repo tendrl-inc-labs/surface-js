@@ -82,6 +82,24 @@ export const StaticAnalysisResultSchema = z.object({
 });
 export type StaticAnalysisResult = z.infer<typeof StaticAnalysisResultSchema>;
 
+// Action-risk scoring for tool-call payloads: a calibrated probability that the
+// call is harmful, with plain-language reasons. Absent when the feature is off
+// or the payload is not a tool call. In "shadow" mode it is informational only
+// and does not affect safetyScore.recommendedAction. Unknown extra keys pass
+// through so a newer scanner still parses.
+export const ActionRiskSchema = z
+  .object({
+    probability: z.number(), // 0.0-1.0
+    reasons: z.array(z.string()).optional(),
+    action: z.string().optional(), // "Allow" | "Review" | "Block" (this engine alone)
+    mode: z.string().optional(), // "shadow" | "on"
+    calls: z.number().optional(),
+    modelVersion: z.string().optional(),
+    record: z.record(z.unknown()).optional(), // normalized action; opaque
+  })
+  .passthrough();
+export type ActionRisk = z.infer<typeof ActionRiskSchema>;
+
 export const ScanResultSchema = z.object({
   requestId: z.string().optional(),
   name: z.string(),
@@ -110,6 +128,9 @@ export const ScanResultSchema = z.object({
   // severity, reason, evidence}], contextual }. The reason is also mirrored in
   // safetyScore.primaryThreat.
   actionScreen: z.any().optional(),
+  // Action-risk scoring (see ActionRiskSchema). A malformed value is dropped
+  // rather than failing the whole scan result.
+  actionRisk: ActionRiskSchema.optional().catch(undefined),
 });
 export type ScanResult = z.infer<typeof ScanResultSchema>;
 

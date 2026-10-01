@@ -12,7 +12,7 @@ import {
   type ToolGuardOptions,
 } from "../src/index.js";
 
-function resp(action: string, opts: { primaryThreat?: string; actionScreen?: unknown } = {}) {
+function resp(action: string, opts: { primaryThreat?: string; actionScreen?: unknown; actionRisk?: unknown } = {}) {
   const base = {
     name: "t.toolcall.json",
     size: 1,
@@ -33,12 +33,13 @@ function resp(action: string, opts: { primaryThreat?: string; actionScreen?: unk
     scanTimeMs: 1,
     timestamp: 0,
   };
-  return opts.actionScreen ? { ...base, actionScreen: opts.actionScreen } : base;
+  const withScreen = opts.actionScreen ? { ...base, actionScreen: opts.actionScreen } : base;
+  return opts.actionRisk !== undefined ? { ...withScreen, actionRisk: opts.actionRisk } : withScreen;
 }
 
 function guardWith(
   action: string,
-  opts: { primaryThreat?: string; actionScreen?: unknown; guard?: ToolGuardOptions } = {},
+  opts: { primaryThreat?: string; actionScreen?: unknown; actionRisk?: unknown; guard?: ToolGuardOptions } = {},
 ) {
   let lastBody: any = {};
   const fetchImpl = (async (_url: string, init?: RequestInit) => {
@@ -206,4 +207,62 @@ test("screen userRequest fills only a missing request", async () => {
   const b = guardWith("Allow", { guard: { context: { user_request: "pay the vendor" } } });
   await b.guard.screen("t", {}, { userRequest: "something else" });
   assert.equal(b.lastBody().context.user_request, "pay the vendor");
+});
+
+// --- actionRisk (additive; never changes the verdict) ---
+
+const RISK = {
+  probability: 0.87,
+  reasons: ["Sends funds to an address not mentioned in the request"],
+  action: "Block",
+  mode: "shadow",
+  calls: 1,
+  modelVersion: "action-risk-v1",
+  record: { tool: "transfer", verb: "send" },
+};
+
+test("actionRisk is parsed onto the result and surfaced on the Decision", async () => {
+  const { guard } = guardWith("Allow", { actionRisk: RISK });
+  const d = await guard.screen("transfer", { amount: 10 });
+  assert.equal(d.result?.actionRisk?.probability, 0.87);
+  assert.equal(d.result?.actionRisk?.mode, "shadow");
+  assert.equal(d.result?.actionRisk?.modelVersion, "action-risk-v1");
+  assert.deepEqual(d.result?.actionRisk?.record, { tool: "transfer", verb: "send" });
+  assert.equal(d.riskProbability, 0.87);
+  assert.deepEqual(d.riskReasons, RISK.reasons);
+  // Shadow Block from the risk engine does not change the scan's Allow.
+  assert.equal(d.action, "Allow");
+  assert.ok(d.allowed);
+});
+
+test("without actionRisk the Decision has no probability and empty reasons", async () => {
+  const d = await guardWith("Review").guard.screen("t", {});
+  assert.equal(d.result?.actionRisk, undefined);
+  assert.equal(d.riskProbability, undefined);
+  assert.deepEqual(d.riskReasons, []);
+  assert.equal(d.action, "Review");
+});
+
+test("actionRisk without reasons yields empty riskReasons", async () => {
+  const d = await guardWith("Block", { actionRisk: { probability: 0.2, action: "Allow", mode: "on", calls: 1 } }).guard.screen("t", {});
+  assert.equal(d.riskProbability, 0.2);
+  assert.deepEqual(d.riskReasons, []);
+  assert.equal(d.action, "Block");
+});
+
+test("a malformed actionRisk is dropped, not a parse failure", async () => {
+  const d = await guardWith("Allow", { actionRisk: "nonsense" }).guard.screen("t", {});
+  assert.equal(d.result?.actionRisk, undefined);
+  assert.equal(d.riskProbability, undefined);
+  assert.equal(d.action, "Allow");
+});
+
+test("wrap still runs on Allow when actionRisk is high (shadow)", async () => {
+  let ran = false;
+  const safe = guardWith("Allow", { actionRisk: { ...RISK, probability: 0.99 } }).guard.wrap(() => {
+    ran = true;
+    return "ok";
+  }, "transfer");
+  assert.equal(await safe(), "ok");
+  assert.equal(ran, true);
 });

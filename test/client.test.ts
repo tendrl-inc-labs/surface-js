@@ -157,3 +157,34 @@ test("a response without coverage still parses", async () => {
   };
   assert.equal(result.safetyScore.coverage, undefined);
 });
+
+test("actionRisk survives deserialization on a payload scan, extra keys kept", async () => {
+  const { client } = clientReturning({
+    ...SCAN_RESPONSE,
+    actionRisk: {
+      probability: 0.42,
+      reasons: ["Deletes a data directory"],
+      action: "Review",
+      mode: "shadow",
+      calls: 2,
+      modelVersion: "v1",
+      record: { tool: "shell" },
+      futureField: true,
+    },
+  });
+  const result = (await client.scanPayload('{"tool":"shell","args":{}}')) as {
+    actionRisk?: Record<string, unknown>;
+  };
+  assert.equal(result.actionRisk?.probability, 0.42);
+  assert.deepEqual(result.actionRisk?.reasons, ["Deletes a data directory"]);
+  assert.equal(result.actionRisk?.mode, "shadow");
+  assert.equal(result.actionRisk?.calls, 2);
+  assert.deepEqual(result.actionRisk?.record, { tool: "shell" });
+  assert.equal(result.actionRisk?.futureField, true);
+});
+
+test("a response without actionRisk still parses", async () => {
+  const { client } = clientReturning(SCAN_RESPONSE);
+  const result = (await client.scanPayload("hello")) as { actionRisk?: unknown };
+  assert.equal(result.actionRisk, undefined);
+});

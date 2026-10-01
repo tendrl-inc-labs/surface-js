@@ -40,6 +40,19 @@ export class Decision {
     readonly strictness: StrictnessLevel = "balanced",
   ) {}
 
+  /**
+   * Calibrated probability (0-1) that the call is harmful, from the result's
+   * `actionRisk` when the scanner returned one. Informational: it does not
+   * change `action`, which always follows the scan's recommendedAction.
+   */
+  get riskProbability(): number | undefined {
+    return this.result?.actionRisk?.probability;
+  }
+  /** Plain-language reasons behind {@link riskProbability} (empty when absent). */
+  get riskReasons(): string[] {
+    return this.result?.actionRisk?.reasons ?? [];
+  }
+
   get allowed(): boolean {
     return this.action === "Allow";
   }
