@@ -126,3 +126,18 @@ test("invalid client strictness throws at construction", () => {
     (e: unknown) => e instanceof ValidationError,
   );
 });
+
+test("source and personal_mail_expected are validated and sent", async () => {
+  for (const source of ["user_prompt", "content", "tool_call"] as const) {
+    const { client, lastBody } = verdictClient();
+    await client.scanPayload("hi", "x", { context: { source, personal_mail_expected: true } });
+    assert.deepEqual(lastBody().context, { source, personal_mail_expected: true });
+  }
+  for (const bad of [{ source: "prompt" }, { personal_mail_expected: "yes" }]) {
+    const { client } = verdictClient();
+    await assert.rejects(
+      () => client.scanPayload("hi", "x", { context: bad as unknown as ActionContext }),
+      (e: unknown) => e instanceof ValidationError,
+    );
+  }
+});

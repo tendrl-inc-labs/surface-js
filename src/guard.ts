@@ -162,6 +162,10 @@ export class ToolGuard {
     if (userRequest && !ctx?.user_request) {
       ctx = { ...ctx, user_request: String(userRequest) };
     }
+    // Everything a guard screens is an action the agent is about to take.
+    if (ctx?.source === undefined) {
+      ctx = { ...ctx, source: "tool_call" };
+    }
     return ctx;
   }
 

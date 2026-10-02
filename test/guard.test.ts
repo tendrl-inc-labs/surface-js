@@ -183,12 +183,12 @@ test("invalid guard options throw", () => {
 test("guard strictness fills the context unless the context sets it", async () => {
   const a = guardWith("Allow", { guard: { strictness: "strict" } });
   const d = await a.guard.screen("t", {});
-  assert.deepEqual(a.lastBody().context, { strictness: "strict" });
+  assert.deepEqual(a.lastBody().context, { strictness: "strict", source: "tool_call" });
   assert.equal(d.strictness, "strict");
 
   const b = guardWith("Allow", { guard: { strictness: "strict", context: { user_request: "pay the vendor" } } });
   await b.guard.screen("t", {});
-  assert.deepEqual(b.lastBody().context, { user_request: "pay the vendor", strictness: "strict" });
+  assert.deepEqual(b.lastBody().context, { user_request: "pay the vendor", strictness: "strict", source: "tool_call" });
 
   const c = guardWith("Allow", { guard: { strictness: "strict", context: { strictness: "relaxed" } } });
   const dc = await c.guard.screen("t", {});
@@ -265,4 +265,13 @@ test("wrap still runs on Allow when actionRisk is high (shadow)", async () => {
   }, "transfer");
   assert.equal(await safe(), "ok");
   assert.equal(ran, true);
+});
+
+test("guard marks the source as tool_call unless the context sets one", async () => {
+  const a = guardWith("Allow", {});
+  await a.guard.screen("t", {});
+  assert.equal(a.lastBody().context.source, "tool_call");
+  const b = guardWith("Allow", { guard: { context: { source: "content" } } });
+  await b.guard.screen("t", {});
+  assert.equal(b.lastBody().context.source, "content");
 });

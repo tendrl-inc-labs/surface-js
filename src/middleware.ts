@@ -1,4 +1,4 @@
-import type { SurfaceClient } from "./client.js";
+import { checkSource, type PayloadSource, type SurfaceClient } from "./client.js";
 import type { ScanResult } from "./models.js";
 
 /**
@@ -36,6 +36,18 @@ export interface ScanMiddlewareOptions {
 
   /** Callback when scanning fails (scanner down, timeout, etc.). */
   onError?: (info: { path: string; error: Error }) => void;
+
+  /**
+   * Who wrote the scanned body. "user_prompt" for a chat or agent endpoint your
+   * own users type into: a prompt-injection match there is held for Review,
+   * not blocked, unless the client is strict. "content" for text from
+   * elsewhere that an agent will read. Omit if unknown.
+   */
+  source?: PayloadSource;
+}
+
+function sourceOptions(source: PayloadSource | undefined) {
+  return checkSource(source) ? { context: { source } } : undefined;
 }
 
 /**
@@ -60,6 +72,7 @@ export function scanMiddleware(
   const label = options?.label ?? "middleware-scan";
   const failOpen = options?.failOpen ?? true;
   const minSize = options?.minSize ?? 0;
+  const scanOpts = sourceOptions(options?.source);
 
   return async (req: any, res: any, next: any) => {
     // Only scan methods with bodies
@@ -87,7 +100,7 @@ export function scanMiddleware(
     }
 
     try {
-      const result = await client.scanPayload(payload, label);
+      const result = await client.scanPayload(payload, label, scanOpts);
 
       if ("safetyScore" in result && rejected(reject, result.safetyScore)) {
         if (options?.onThreat) {
@@ -158,6 +171,9 @@ export function createSafeFetch(
   const failOpen = options?.failOpen ?? true;
   const scanRequest = options?.scanRequest ?? true;
   const scanResponse = options?.scanResponse ?? false;
+  const requestOpts = sourceOptions(options?.source);
+  // A response is content the agent is about to read.
+  const responseOpts = { context: { source: "content" as const } };
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -173,7 +189,7 @@ export function createSafeFetch(
 
       if (bodyStr.length > 0) {
         try {
-          const result = await client.scanPayload(bodyStr, label);
+          const result = await client.scanPayload(bodyStr, label, requestOpts);
           if ("safetyScore" in result && rejected(reject, result.safetyScore)) {
             if (options?.onThreat) {
               options.onThreat({ path: url, result });
@@ -202,7 +218,7 @@ export function createSafeFetch(
       try {
         const responseBody = await response.clone().text();
         if (responseBody.length > 0) {
-          const result = await client.scanPayload(responseBody, label);
+          const result = await client.scanPayload(responseBody, label, responseOpts);
           if ("safetyScore" in result && rejected(reject, result.safetyScore)) {
             if (options?.onThreat) {
               options.onThreat({ path: url, result });
