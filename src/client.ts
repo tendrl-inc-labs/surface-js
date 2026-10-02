@@ -60,6 +60,27 @@ export function checkStrictness(value: unknown): StrictnessLevel | undefined {
   return value as StrictnessLevel;
 }
 
+/** Accepted `ActionContext.source` values: who wrote a scanned payload. */
+export const SOURCES = ["user_prompt", "content", "tool_call"] as const;
+
+/**
+ * Who wrote a payload. user_prompt: the person the agent works for; a
+ * prompt-injection match there is held for Review, never blocked, unless
+ * strictness is strict. content: text the agent reads (a web page, an email,
+ * tool output); an injection there blocks. tool_call: an action the agent is
+ * about to take. Omitted, an injection blocks only on corroborated evidence.
+ */
+export type PayloadSource = (typeof SOURCES)[number];
+
+/** Throws ValidationError unless `value` is undefined or a source. */
+export function checkSource(value: unknown): PayloadSource | undefined {
+  if (value === undefined) return undefined;
+  if (!(SOURCES as readonly unknown[]).includes(value)) {
+    throw new ValidationError(`source must be one of ${SOURCES.join(", ")}`);
+  }
+  return value as PayloadSource;
+}
+
 const hostList = z.array(z.string());
 
 /** Runtime check: fields are optional; values that are passed must be well-formed. */
@@ -68,6 +89,8 @@ export const ActionContextSchema = z.object({
   allowed_egress: hostList.optional(),
   user_request: z.string().optional(),
   strictness: z.enum(STRICTNESS_LEVELS).optional(),
+  source: z.enum(SOURCES).optional(),
+  personal_mail_expected: z.boolean().optional(),
 });
 
 /**
@@ -97,6 +120,14 @@ export interface ActionContext {
    * uses "balanced".
    */
   strictness?: StrictnessLevel;
+  /** Who wrote the payload; see {@link PayloadSource}. */
+  source?: PayloadSource;
+  /**
+   * Your users routinely correspond with people on personal mailboxes
+   * (customers, candidates, family on Gmail). A send to a personal address the
+   * user named in user_request is then allowed below "strict".
+   */
+  personal_mail_expected?: boolean;
 }
 
 export interface ScanFileOptions {

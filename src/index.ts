@@ -1,10 +1,11 @@
-export { SurfaceClient, STRICTNESS_LEVELS } from "./client.js";
+export { SurfaceClient, STRICTNESS_LEVELS, SOURCES } from "./client.js";
 export type {
   SurfaceClientOptions,
   ScanFileOptions,
   ScanMode,
   ActionContext,
   StrictnessLevel,
+  PayloadSource,
 } from "./client.js";
 
 export { ToolGuard, Decision, ToolBlocked, ToolNeedsReview, toolCallJson } from "./guard.js";

@@ -24,7 +24,7 @@ import { withScan } from "@tendrl/surface";
 
 // Uses SURFACE_KEY env var automatically
 const process = withScan(
-  (result) => console.log(result.safetyScore.threatLevel), // Clean, Informational, Suspicious, or Malicious
+  (result) => console.log(result.safetyScore.threatLevel), // Clean, Informational, Suspicious, Risky, or Malicious
   { reject: ["Block"] },                                   // refuse what the scanner recommends blocking
 );
 
@@ -45,7 +45,7 @@ const result = await client.scanFile(file);
 
 // scanFile resolves to ScanResult | DeferredScanResponse, so narrow before use
 if ("safetyScore" in result) {
-  console.log(result.safetyScore.threatLevel); // Clean, Informational, Suspicious, or Malicious
+  console.log(result.safetyScore.threatLevel); // Clean, Informational, Suspicious, Risky, or Malicious
 }
 ```
 
@@ -152,6 +152,19 @@ const strictClient = new SurfaceClient({ strictness: "strict" });
 ```
 
 Omit `strictness` and you get `balanced`, so an agent with no configuration isn't stopped while it does routine work. An invalid level throws a `ValidationError`. See the [Python SDK README](https://github.com/tendrl-inc-labs/surface-python#action-screening-context) for the full per-level table.
+
+**Who wrote it: `source`.** Tell Surface where the payload came from and it judges prompt injection accordingly. `"user_prompt"`: the person your agent works for typed it; their own text ("ignore my previous instruction", a story, a pasted log, a translation) is not flagged, and a direct override is held for Review, never blocked, unless `strictness: "strict"`. `"content"`: text the agent reads (a web page, an email, tool output), where a single injection pattern blocks. `"tool_call"`: an action the agent is about to take; `ToolGuard` sets this for you. Omitted, an injection blocks only when two independent signals agree.
+
+```ts
+await client.scanPayload(userMessage, "chat.txt", { context: { source: "user_prompt" } });
+app.use("/chat", scanMiddleware(client, { source: "user_prompt" }));
+```
+
+`createSafeFetch` scans fetched responses as `"content"`.
+
+**Personal mailboxes.** Sensitive data (a customer export, a directory) to a Gmail or Outlook address is held for Review by default and blocked at `strict`; the recipient's own address never counts as the data. If your users routinely correspond with people on personal mailboxes, set `personal_mail_expected: true` and a send to an address named in `user_request` passes below `strict`. A live credential still blocks.
+
+**Threat levels.** A Block that rests only on a risky agent action (a tool call, not malware or an injection) is reported as `threatLevel: "Risky"` with `recommendedAction: "Block"`; malware and injections stay `"Malicious"`. Reject on `"Block"` to stop both.
 
 **Use cases**
 
