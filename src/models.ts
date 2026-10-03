@@ -100,6 +100,22 @@ export const ActionRiskSchema = z
   .passthrough();
 export type ActionRisk = z.infer<typeof ActionRiskSchema>;
 
+// Content-risk scoring: the calibrated likelihood that text an agent reads
+// (a page, email, ticket or tool output) tries to steer it into a harmful
+// action, with plain-language reasons. Absent when the feature is off or the
+// payload is a user's prompt or a tool call. In "shadow" mode it is
+// informational only. Unknown extra keys pass through.
+export const ContentRiskSchema = z
+  .object({
+    probability: z.number(), // 0.0-1.0
+    reasons: z.array(z.string()).optional(),
+    action: z.string().optional(), // "Allow" | "Review" | "Block" (this engine alone)
+    mode: z.string().optional(), // "shadow" | "on"
+    modelVersion: z.string().optional(),
+  })
+  .passthrough();
+export type ContentRisk = z.infer<typeof ContentRiskSchema>;
+
 export const ScanResultSchema = z.object({
   requestId: z.string().optional(),
   name: z.string(),
@@ -131,6 +147,8 @@ export const ScanResultSchema = z.object({
   // Action-risk scoring (see ActionRiskSchema). A malformed value is dropped
   // rather than failing the whole scan result.
   actionRisk: ActionRiskSchema.optional().catch(undefined),
+  // Content-risk scoring (see ContentRiskSchema), dropped if malformed.
+  contentRisk: ContentRiskSchema.optional().catch(undefined),
 });
 export type ScanResult = z.infer<typeof ScanResultSchema>;
 

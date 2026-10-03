@@ -188,3 +188,22 @@ test("a response without actionRisk still parses", async () => {
   const result = (await client.scanPayload("hello")) as { actionRisk?: unknown };
   assert.equal(result.actionRisk, undefined);
 });
+
+test("contentRisk survives deserialization, extra keys kept", async () => {
+  const { client } = clientReturning({
+    ...SCAN_RESPONSE,
+    contentRisk: {
+      probability: 0.97,
+      reasons: ["addresses an AI agent and asks it to act"],
+      action: "Review",
+      mode: "shadow",
+      modelVersion: "content-risk-1",
+      futureField: true,
+    },
+  });
+  const result = (await client.scanPayload("ticket text")) as { contentRisk?: Record<string, unknown> };
+  assert.equal(result.contentRisk?.probability, 0.97);
+  assert.equal(result.contentRisk?.action, "Review");
+  assert.equal(result.contentRisk?.mode, "shadow");
+  assert.equal(result.contentRisk?.futureField, true);
+});
