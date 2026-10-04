@@ -162,7 +162,7 @@ app.use("/chat", scanMiddleware(client, { source: "user_prompt" }));
 
 `createSafeFetch` scans fetched responses as `"content"`.
 
-**Personal mailboxes.** Sensitive data (a customer export, a directory) to a Gmail or Outlook address is held for Review by default and blocked at `strict`; the recipient's own address never counts as the data. If your users routinely correspond with people on personal mailboxes, set `personal_mail_expected: true` and a send to an address named in `user_request` passes below `strict`. A live credential still blocks.
+**Personal mailboxes.** Agents mail customers and candidates on Gmail all day, so below `strict` a send to a personal mailbox is held only on evidence: `user_request` was passed and never named the address (or is itself an override like "ignore previous instructions"), or the message describes bulk data ("all customer records"). Without `user_request` such sends aren't judged below `strict`, so pass it. Sensitive data to a personal mailbox is blocked at `strict`; the recipient's own address never counts as the data. If your users routinely correspond with people on personal mailboxes, set `personal_mail_expected: true` and even a bulk send to an address named in `user_request` passes below `strict`. A live credential still blocks.
 
 **Threat levels.** A Block that rests only on a risky agent action (a tool call, not malware or an injection) is reported as `threatLevel: "Risky"` with `recommendedAction: "Block"`; malware and injections stay `"Malicious"`. Reject on `"Block"` to stop both.
 
