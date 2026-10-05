@@ -261,7 +261,7 @@ Express/Connect middleware that scans request bodies:
 ```typescript
 import { scanMiddleware } from "@tendrl/surface";
 
-app.use("/api", scanMiddleware(client));
+app.use("/api", scanMiddleware(client)); // rejects what Surface recommends blocking (reject defaults to ["Block"])
 ```
 
 For agent-to-agent or outbound HTTP scanning, `createSafeFetch` wraps `fetch` to scan request and/or response bodies:
