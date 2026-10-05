@@ -19,7 +19,7 @@ function rejected(
  * Options for configuring scan middleware behavior.
  */
 export interface ScanMiddlewareOptions {
-  /** Threat levels ("Malicious"/"Suspicious") or recommended actions ("Block"/"Review") to block, matched case-insensitively. Default: ["Malicious"]. */
+  /** Threat levels ("Malicious"/"Suspicious") or recommended actions ("Block"/"Review") to block, matched case-insensitively. Default: ["Block"], so whatever Surface recommends blocking (Malicious, Risky, a type the profile refuses) is rejected. */
   reject?: string[];
 
   /** Optional label for scans in history. Default: "middleware-scan". */
@@ -68,7 +68,7 @@ export function scanMiddleware(
   client: SurfaceClient,
   options?: ScanMiddlewareOptions,
 ): (req: any, res: any, next: any) => void {
-  const reject = new Set((options?.reject ?? ["Malicious"]).map((l) => l.toLowerCase()));
+  const reject = new Set((options?.reject ?? ["Block"]).map((l) => l.toLowerCase()));
   const label = options?.label ?? "middleware-scan";
   const failOpen = options?.failOpen ?? true;
   const minSize = options?.minSize ?? 0;
@@ -166,7 +166,7 @@ export function createSafeFetch(
   client: SurfaceClient,
   options?: SafeFetchOptions,
 ): typeof globalThis.fetch {
-  const reject = new Set((options?.reject ?? ["Malicious"]).map((l) => l.toLowerCase()));
+  const reject = new Set((options?.reject ?? ["Block"]).map((l) => l.toLowerCase()));
   const label = options?.label ?? "middleware-scan";
   const failOpen = options?.failOpen ?? true;
   const scanRequest = options?.scanRequest ?? true;
