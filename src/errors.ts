@@ -45,6 +45,24 @@ export class RateLimitError extends SurfaceError {
   }
 }
 
+/**
+ * Surface gave no real answer: the server could not be reached, the call's
+ * timeout ran out, it answered HTTP 500/502/503/504, or the body was not the
+ * JSON the SDK expects. `statusCode` is the HTTP status, or 0 when no response
+ * arrived. Retries on 502/503/504 and refused/reset connections have already
+ * been spent by the time this is thrown.
+ */
+export class SurfaceUnavailableError extends SurfaceError {
+  /** The underlying transport or parse error, when there was one. */
+  public cause?: unknown;
+
+  constructor(message: string, statusCode = 0, requestId?: string, cause?: unknown) {
+    super(message, statusCode, requestId);
+    this.name = "SurfaceUnavailableError";
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
 export class MaliciousFileError extends Error {
   public result: import("./models.js").ScanResult;
 

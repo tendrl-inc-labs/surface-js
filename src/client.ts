@@ -6,6 +6,7 @@ import {
   NotFoundError,
   QuotaExceededError,
   RateLimitError,
+  SurfaceUnavailableError,
   MaliciousFileError,
 } from "./errors.js";
 import {
@@ -39,6 +40,63 @@ export interface SurfaceClientOptions {
    * its own `strictness` wins. Omitted, the scanner uses "balanced".
    */
   strictness?: StrictnessLevel;
+  /**
+   * Budget for one SDK call in milliseconds, covering every attempt and retry
+   * wait. Default 60000. When it runs out the call throws SurfaceUnavailableError.
+   */
+  timeoutMs?: number;
+}
+
+/** Statuses retried inside the call's budget: the scanner is restarting or a proxy lost it. */
+const RETRY_STATUSES = new Set([502, 503, 504]);
+/** Statuses that mean Surface gave no real answer. */
+const UNAVAILABLE_STATUSES = new Set([500, 502, 503, 504]);
+/** Transport error codes worth retrying: nothing was processed. DNS failures are not. */
+const RETRY_CODES = new Set(["ECONNREFUSED", "ECONNRESET", "EPIPE", "UND_ERR_SOCKET"]);
+const MAX_RETRIES = 10;
+/** Longest single wait, in seconds, however large Retry-After is. */
+const MAX_RETRY_WAIT = 10;
+/** Backoff in seconds when the server sends no Retry-After; the last step repeats. */
+const BACKOFF = [1, 2, 4, 8];
+const TIMED_OUT = Symbol("timed out");
+
+/** A response that came back as a real answer: status and parsed body. */
+interface Reply {
+  status: number;
+  body: unknown;
+}
+
+/** Transport error codes on `err`, its cause, and a happy-eyeballs AggregateError's members. */
+function errorCodes(err: unknown): string[] {
+  const codes: string[] = [];
+  const seen = new Set<unknown>();
+  const visit = (e: unknown) => {
+    if (!e || typeof e !== "object" || seen.has(e)) return;
+    seen.add(e);
+    const o = e as { code?: unknown; cause?: unknown; errors?: unknown };
+    if (typeof o.code === "string") codes.push(o.code);
+    visit(o.cause);
+    if (Array.isArray(o.errors)) o.errors.forEach(visit);
+  };
+  visit(err);
+  return codes;
+}
+
+/** Seconds to wait before the next attempt: Retry-After (capped) or the backoff step. */
+function retryWait(retryAfter: string | null, retries: number): number {
+  const seconds = retryAfter === null ? NaN : Number(retryAfter.trim());
+  if (retryAfter?.trim() && Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds, MAX_RETRY_WAIT);
+  }
+  return BACKOFF[Math.min(retries, BACKOFF.length - 1)];
+}
+
+/** The server's `error` (or `message`) text from a JSON error body. */
+function serverMessage(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const b = body as Record<string, unknown>;
+  const m = b.error ?? b.message;
+  return typeof m === "string" && m ? m : undefined;
 }
 
 /** Accepted `ActionContext.strictness` values. */
@@ -152,11 +210,21 @@ export class SurfaceClient {
   private fetch: typeof globalThis.fetch;
   private mode: ScanMode;
   private scannerUrl: string;
+  private timeoutMs: number;
+  /**
+   * @internal Milliseconds per second of retry wait. Tests shrink it so
+   * backoff and Retry-After run fast; leave it alone.
+   */
+  retryUnitMs = 1000;
   /** Default strictness filled into `scanPayload` contexts that leave it unset. */
   readonly strictness: StrictnessLevel | undefined;
 
   constructor(options: SurfaceClientOptions = {}) {
     this.strictness = checkStrictness(options.strictness);
+    this.timeoutMs = options.timeoutMs ?? 60_000;
+    if (!(this.timeoutMs > 0)) {
+      throw new ValidationError("timeoutMs must be a positive number");
+    }
     this.mode = options.mode ?? "api";
     this.scannerUrl = (options.scannerUrl ?? "http://127.0.0.1:8090").replace(/\/$/, "");
     this.fetch = options.fetch ?? globalThis.fetch;
@@ -179,22 +247,49 @@ export class SurfaceClient {
   }
 
   /**
-   * Throw a typed error from an HTTP response.
+   * Turn a non-retried response into a Reply, or throw a typed error. 4xx keep
+   * their typed errors; 500/502/503/504, and a body that is not JSON on any
+   * other status, mean Surface gave no real answer.
    */
-  private async throwResponseError(response: Response): Promise<never> {
+  private toReply(response: Response, text: string): Reply {
+    const status = response.status;
     const requestId = response.headers.get("x-request-id") ?? undefined;
-    let message: string;
-    try {
-      const body = await response.json();
-      message =
-        (body as Record<string, unknown>).error as string ??
-        (body as Record<string, unknown>).message as string ??
-        response.statusText;
-    } catch {
-      message = response.statusText;
+
+    // 204 No Content — nothing to parse
+    if (status === 204) {
+      return { status, body: undefined };
     }
 
-    switch (response.status) {
+    let body: unknown;
+    let isJson = true;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      isJson = false;
+    }
+
+    if (response.ok) {
+      if (!isJson) {
+        throw new SurfaceUnavailableError(
+          `Surface unavailable (HTTP ${status}): response was not JSON`,
+          status,
+          requestId,
+        );
+      }
+      return { status, body };
+    }
+
+    const serverText = isJson ? serverMessage(body) : undefined;
+    if (UNAVAILABLE_STATUSES.has(status) || (!isJson && (status < 400 || status >= 500))) {
+      throw new SurfaceUnavailableError(
+        `Surface unavailable (HTTP ${status})${serverText ? `: ${serverText}` : isJson ? "" : ": response was not JSON"}`,
+        status,
+        requestId,
+      );
+    }
+
+    const message = serverText ?? response.statusText;
+    switch (status) {
       case 400:
         throw new ValidationError(message, requestId);
       case 401:
@@ -210,47 +305,103 @@ export class SurfaceClient {
         throw new QuotaExceededError(message, requestId);
       }
       default:
-        throw new SurfaceError(message, response.status, requestId);
+        throw new SurfaceError(message, status, requestId);
     }
   }
 
   /**
-   * Internal request helper for the Surface API. Sends an HTTP request,
-   * maps error status codes to typed error classes, and optionally validates
-   * the response body with a Zod schema.
+   * Send one SDK call within its timeout budget. Retries 502/503/504 and
+   * refused/reset connections, honoring Retry-After, and never starts a wait
+   * that would end past the budget. `init.body` must be reusable across
+   * attempts (a string or FormData; streams are buffered before this).
    */
-  private async request<T>(
-    path: string,
-    // ZodType<T> alone forces the schema's input type to equal its output
-    // type, which breaks for any schema using .default() — the input has the
-    // field optional while the output has it required. Leaving the input
-    // parameter open lets those schemas through.
-    init?: RequestInit & { schema?: z.ZodType<T, z.ZodTypeDef, unknown> },
-  ): Promise<T> {
-    const { schema, ...fetchInit } = init ?? {};
+  private async send(url: string, init: RequestInit): Promise<Reply> {
+    const deadline = Date.now() + this.timeoutMs;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A custom fetch may ignore the signal, so every await also races this.
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(TIMED_OUT);
+      }, this.timeoutMs);
+    });
+    expired.catch(() => {});
+    const within = <T>(p: Promise<T>): Promise<T> => Promise.race([p, expired]);
 
-    const headers = new Headers(fetchInit.headers);
+    try {
+      for (let retries = 0; ; retries++) {
+        let failure: SurfaceUnavailableError;
+        let retryAfter: string | null = null;
+        try {
+          const response = await within(this.fetch(url, { ...init, signal: controller.signal }));
+          const text = await within(response.text());
+          if (!RETRY_STATUSES.has(response.status)) {
+            return this.toReply(response, text);
+          }
+          retryAfter = response.headers.get("retry-after");
+          try {
+            this.toReply(response, text);
+          } catch (err) {
+            failure = err as SurfaceUnavailableError;
+          }
+        } catch (err) {
+          if (err === TIMED_OUT || controller.signal.aborted) {
+            throw new SurfaceUnavailableError(
+              `Surface unavailable: no answer within ${this.timeoutMs} ms`,
+              0,
+              undefined,
+              err === TIMED_OUT ? undefined : err,
+            );
+          }
+          if (err instanceof SurfaceError) throw err;
+          const codes = errorCodes(err);
+          const detail = err instanceof Error ? err.message : String(err);
+          failure = new SurfaceUnavailableError(
+            `Surface unavailable: ${detail}${codes.length ? ` (${codes[0]})` : ""}`,
+            0,
+            undefined,
+            err,
+          );
+          if (!codes.some((c) => RETRY_CODES.has(c))) throw failure;
+        }
+        const wait = retryWait(retryAfter, retries) * this.retryUnitMs;
+        if (retries >= MAX_RETRIES || Date.now() + wait > deadline) {
+          failure!.message += ` (gave up after ${retries + 1} attempts)`;
+          throw failure!;
+        }
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Validate a reply body. A body that is JSON but not the shape the SDK
+   * expects is no real answer either.
+   */
+  private parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, reply: Reply): T {
+    const parsed = schema.safeParse(reply.body);
+    if (!parsed.success) {
+      throw new SurfaceUnavailableError(
+        `Surface unavailable (HTTP ${reply.status}): unexpected response body`,
+        reply.status,
+        undefined,
+        parsed.error,
+      );
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Internal request helper for the Surface API: adds the key and sends the
+   * call within its budget.
+   */
+  private request(path: string, init: RequestInit = {}): Promise<Reply> {
+    const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${this.requireKey()}`);
-
-    const url = `${this.baseUrl}${path}`;
-    const response = await this.fetch(url, { ...fetchInit, headers });
-
-    if (!response.ok) {
-      await this.throwResponseError(response);
-    }
-
-    // 204 No Content — nothing to parse
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    const json = await response.json();
-
-    if (schema) {
-      return schema.parse(json);
-    }
-
-    return json as T;
+    return this.send(`${this.baseUrl}${path}`, { ...init, headers });
   }
 
   /** The hosted-API key, or a clear error saying why one is needed. */
@@ -265,15 +416,14 @@ export class SurfaceClient {
   }
 
   /**
-   * Internal request helper for the local scanner daemon.
+   * A scan-endpoint call: the local daemon serves `path` unauthenticated, the
+   * API serves it under "/api".
    */
-  private async localRequest(path: string, init?: RequestInit): Promise<Response> {
-    const url = `${this.scannerUrl}${path}`;
-    const response = await this.fetch(url, init);
-    if (!response.ok) {
-      await this.throwResponseError(response);
+  private scanRequest(path: string, init: RequestInit = {}): Promise<Reply> {
+    if (this.mode === "local") {
+      return this.send(`${this.scannerUrl}${path}`, init);
     }
-    return response;
+    return this.request(`/api${path}`, init);
   }
 
   /**
@@ -325,30 +475,18 @@ export class SurfaceClient {
       requestHeaders["X-Request-ID"] = options.requestId;
     }
 
-    let response: Response;
+    // FormData re-serializes on every fetch, so a retry resends the whole file.
+    const reply = await this.scanRequest(`/scan${query ? `?${query}` : ""}`, {
+      method: "POST",
+      body: formData,
+      headers: requestHeaders,
+    });
 
-    if (this.mode === "local") {
-      response = await this.localRequest(
-        `/scan${query ? `?${query}` : ""}`,
-        { method: "POST", body: formData, headers: requestHeaders },
-      );
-    } else {
-      const headers = new Headers(requestHeaders);
-      headers.set("Authorization", `Bearer ${this.requireKey()}`);
-      const url = `${this.baseUrl}/api/scan${query ? `?${query}` : ""}`;
-      response = await this.fetch(url, { method: "POST", headers, body: formData });
-      if (!response.ok) {
-        await this.throwResponseError(response);
-      }
+    if (reply.status === 202) {
+      return this.parse(DeferredScanResponseSchema, reply);
     }
 
-    const json = await response.json();
-
-    if (response.status === 202) {
-      return DeferredScanResponseSchema.parse(json);
-    }
-
-    const result = ScanResultSchema.parse(json);
+    const result = this.parse(ScanResultSchema, reply);
 
     if (options?.reject) {
       // reject matches on threat level ("Clean"/"Suspicious"/"Malicious") or
@@ -436,31 +574,17 @@ export class SurfaceClient {
       requestHeaders["X-Request-ID"] = options.requestId;
     }
 
-    let response: Response;
+    const reply = await this.scanRequest(`/scan/payload${query ? `?${query}` : ""}`, {
+      method: "POST",
+      body,
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+    });
 
-    if (this.mode === "local") {
-      response = await this.localRequest(
-        `/scan/payload${query ? `?${query}` : ""}`,
-        { method: "POST", body, headers: { ...requestHeaders, "Content-Type": "application/json" } },
-      );
-    } else {
-      const headers = new Headers(requestHeaders);
-      headers.set("Authorization", `Bearer ${this.requireKey()}`);
-      headers.set("Content-Type", "application/json");
-      const url = `${this.baseUrl}/api/scan/payload${query ? `?${query}` : ""}`;
-      response = await this.fetch(url, { method: "POST", headers, body });
-      if (!response.ok) {
-        await this.throwResponseError(response);
-      }
+    if (reply.status === 202) {
+      return this.parse(DeferredScanResponseSchema, reply);
     }
 
-    const json = await response.json();
-
-    if (response.status === 202) {
-      return DeferredScanResponseSchema.parse(json);
-    }
-
-    const result = ScanResultSchema.parse(json);
+    const result = this.parse(ScanResultSchema, reply);
 
     if (options?.reject) {
       // reject matches on threat level ("Clean"/"Suspicious"/"Malicious") or
@@ -517,27 +641,21 @@ export class SurfaceClient {
    * Retrieve the result of a deferred scan by its scan ID.
    */
   async getScan(scanId: string): Promise<unknown> {
-    if (this.mode === "local") {
-      const response = await this.localRequest(`/scan/${encodeURIComponent(scanId)}`);
-      return response.json();
-    }
-    return this.request(`/api/scan/${encodeURIComponent(scanId)}`);
+    return (await this.scanRequest(`/scan/${encodeURIComponent(scanId)}`)).body;
   }
 
   /**
    * Scan usage for the current billing period (`scans_used`, `max_scans`, `scans_remaining`).
    */
   async getUsage(): Promise<Usage> {
-    return this.request("/api/account/usage", {
-      schema: UsageSchema,
-    });
+    return this.parse(UsageSchema, await this.request("/api/account/usage"));
   }
 
   /**
    * Get full account details including plan information and scan counts.
    */
   async getAccount(): Promise<unknown> {
-    return this.request("/api/account");
+    return (await this.request("/api/account")).body;
   }
 
   /**
@@ -556,8 +674,6 @@ export class SurfaceClient {
     }
     const qs = query.toString();
     const path = `/api/account/history${qs ? `?${qs}` : ""}`;
-    return this.request(path, {
-      schema: ScanHistoryPageSchema,
-    });
+    return this.parse(ScanHistoryPageSchema, await this.request(path));
   }
 }

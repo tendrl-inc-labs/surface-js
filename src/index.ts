@@ -24,6 +24,7 @@ export {
   NotFoundError,
   QuotaExceededError,
   RateLimitError,
+  SurfaceUnavailableError,
   MaliciousFileError,
 } from "./errors.js";
 

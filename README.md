@@ -365,6 +365,7 @@ import {
   RateLimitError,
   NotFoundError,
   ValidationError,
+  SurfaceUnavailableError,
 } from "@tendrl/surface";
 
 try {
@@ -374,8 +375,36 @@ try {
     console.log("Monthly scan quota exhausted");
   } else if (err instanceof RateLimitError) {
     console.log("Rate limit hit");
+  } else if (err instanceof SurfaceUnavailableError) {
+    console.log("Surface unavailable; no verdict");
   } else if (err instanceof SurfaceError) {
     console.log(`API error ${err.statusCode}: ${err.message}`);
+  }
+}
+```
+
+## When Surface is unavailable
+
+Anything that is not a real answer from Surface throws `SurfaceUnavailableError` (a `SurfaceError`): the server could not be reached, the call's timeout ran out, it answered HTTP 500/502/503/504, or the body was not the JSON the SDK expects (an HTML proxy error page, say). `statusCode` is the HTTP status, or `0` when no response arrived; the message includes the server's `error` text when there was one. 429 still throws `RateLimitError` / `QuotaExceededError`, and other 4xx keep their typed errors.
+
+Each call has one 60-second budget covering every attempt and wait. Change it with `timeoutMs`:
+
+```typescript
+const client = new SurfaceClient({ timeoutMs: 15_000 });
+```
+
+Inside that budget the client retries HTTP 502, 503 and 504 and refused or reset connections, up to 10 times. It waits for the response's `Retry-After` seconds when present (at most 10 s per wait), otherwise 1, 2, 4, 8, 8, ... seconds, and gives up rather than start a wait that would end past the budget. A 500, a 4xx or a hung request is not retried. A hosted deploy restarts the scanner, which answers 503 for about 45 seconds while it warms up; a scan during a deploy is slower, not failed.
+
+`ToolGuard` fails closed: on `SurfaceUnavailableError` the wrapped tool does not run and the error propagates. `scanMiddleware` and `createSafeFetch` follow `failOpen` (default `true`: the request passes through unscanned; `false` answers 503).
+
+```typescript
+import { SurfaceUnavailableError } from "@tendrl/surface";
+
+try {
+  await client.scanPayload(body);
+} catch (err) {
+  if (err instanceof SurfaceUnavailableError) {
+    // no verdict: hold, retry later, or fail the request
   }
 }
 ```
