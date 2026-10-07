@@ -4,8 +4,16 @@ TypeScript client for the [Surface](https://tendrl.com/products/surface) file sc
 
 ## Installation
 
+Requires Node.js 20+ (or a runtime with `fetch`, `Blob`, and `FormData` for browser and edge use).
+
 ```bash
 npm install github:tendrl-inc-labs/surface-js
+```
+
+To pin a release instead of tracking the default branch, add the tag:
+
+```bash
+npm install github:tendrl-inc-labs/surface-js#v0.3.0
 ```
 
 ## Scan Modes
@@ -13,13 +21,16 @@ npm install github:tendrl-inc-labs/surface-js
 | Mode | Description | API Key Required | Network Required |
 |------|-------------|-----------------|-----------------|
 | **API** (default) | Sends files to the Surface API | Yes | Yes |
-| **Local** | Sends files to a local scanner daemon | No | No |
+| **Local** | Sends files to a local scanner daemon | No (the daemon itself needs one to start) | No |
+
+In local mode the SDK's calls to the daemon carry no key, but the `surface-scanner` daemon refuses to start without one. See [Quick Start — Local Mode](#quick-start--local-mode).
 
 ## Quick Start — API Mode
 
 The shortest integration is `withScan`: hand it a file, your handler receives the `ScanResult`, and files matching `reject` never reach it.
 
 ```typescript
+import { readFile } from "node:fs/promises";
 import { withScan } from "@tendrl/surface";
 
 // Uses SURFACE_KEY env var automatically
@@ -28,8 +39,11 @@ const process = withScan(
   { reject: ["Block"] },                                   // refuse what the scanner recommends blocking
 );
 
+const file = new File([await readFile("invoice.pdf")], "invoice.pdf");
 await process(file); // you pass the file; the handler gets the result
 ```
+
+The examples scan documents and archives, which the Default scan profile accepts. Executables and scripts (`.exe`, `.sh`, ...) are refused by type with a `ValidationError` unless the key's profile allows them; see [scan profiles](https://tendrl.com/docs/surface/scan-profiles/).
 
 `reject` matches the recommended action (`"Block"`, `"Review"`) or the threat level (`"Malicious"`, `"Suspicious"`) — a rejected file throws `MaliciousFileError` before the handler runs.
 
@@ -38,7 +52,7 @@ Prefer to hold the client yourself? The same scan is one method call:
 ```typescript
 import { SurfaceClient } from "@tendrl/surface";
 
-// Uses SURFACE_KEY env var automatically; pass { apiKey: "sfk_..." } to set it explicitly
+// Uses SURFACE_KEY env var automatically; pass { apiKey: "your-surface-token" } to set it explicitly
 const client = new SurfaceClient();
 
 const result = await client.scanFile(file);
@@ -51,7 +65,11 @@ if ("safetyScore" in result) {
 
 ## Quick Start — Local Mode
 
-Requires the scanner daemon running on localhost (e.g. `surface-scanner --daemon --listen=:8090`).
+Requires the scanner daemon running on localhost. The daemon needs the same token as the API (as `SURFACE_API_KEY` or `--api-key`) and refuses to start without one:
+
+```bash
+SURFACE_API_KEY="your-surface-token" surface-scanner --daemon --listen=127.0.0.1:8090
+```
 
 ```typescript
 import { SurfaceClient } from "@tendrl/surface";
@@ -77,12 +95,14 @@ The client checks for an API key in this order:
 2. `SURFACE_KEY` environment variable (Node.js only)
 
 ```bash
-export SURFACE_KEY="sfk_your_token_here"
+export SURFACE_KEY="your-surface-token"
 ```
+
+To get a token, create a key in the Surface dashboard under **Access Control → API keys** and copy the token (it is shown once). The token is the secret the SDK sends; the key's ID is not.
 
 In `mode: "api"` an `AuthenticationError` is thrown at construction time if neither is set.
 
-`mode: "local"` is exempt: the local scanner daemon is unauthenticated and the client never sends the key to it, so a local client constructs fine without one. A key is still needed for the hosted calls — `getUsage`, `getAccount`, and `getScanHistory` — which always go to the Surface API regardless of mode.
+`mode: "local"` is exempt: the SDK's calls to the local daemon are unauthenticated and the client never sends the key to it, so a local client constructs fine without one. The daemon itself still needs your token to start (see above). A key is still needed for the hosted calls — `getUsage`, `getAccount`, and `getScanHistory` — which always go to the Surface API regardless of mode.
 
 ## Scanning Files
 
@@ -93,8 +113,8 @@ In `mode: "api"` an `AuthenticationError` is thrown at construction time if neit
 const fromFile = await client.scanFile(file);
 
 // Node.js — from Buffer
-const buf = readFileSync("sample.exe");
-const fromBuffer = await client.scanFile(buf, { filename: "sample.exe" });
+const buf = readFileSync("invoice.pdf");
+const fromBuffer = await client.scanFile(buf, { filename: "invoice.pdf" });
 
 // Reject malicious files — throws MaliciousFileError
 const checked = await client.scanFile(file, { reject: ["Malicious", "Suspicious"] });

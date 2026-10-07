@@ -10,6 +10,9 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
