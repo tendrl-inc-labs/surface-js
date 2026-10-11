@@ -36,7 +36,7 @@ import { withScan } from "@tendrl/surface";
 // Uses SURFACE_KEY env var automatically
 const process = withScan(
   (result) => console.log(result.safetyScore.threatLevel), // Clean, Informational, Suspicious, Risky, or Malicious
-  { reject: ["Block"] },                                   // refuse what the scanner recommends blocking
+  { reject: ["Block", "Review"] },                         // uploads: refuse Block and Review
 );
 
 const file = new File([await readFile("invoice.pdf")], "invoice.pdf");
@@ -46,6 +46,8 @@ await process(file); // you pass the file; the handler gets the result
 The examples scan documents and archives, which the Default scan profile accepts. Executables and scripts (`.exe`, `.sh`, ...) are refused by type with a `ValidationError` unless the key's profile allows them; see [scan profiles](https://tendrl.com/docs/surface/scan-profiles/).
 
 `reject` matches the recommended action (`"Block"`, `"Review"`) or the threat level (`"Malicious"`, `"Suspicious"`) — a rejected file throws `MaliciousFileError` before the handler runs.
+
+For file uploads, reject `Review` as well as `Block`. `Block` needs precise evidence (a known-malware hash, an antivirus signature, a malware rule), so new malware recognized only by the models comes back as `Review`; rejecting `Block` alone lets most of it through. Agent tool calls are different: there `Review` means "confirm with the user" (see [Guarding an agent's tool calls](#guarding-an-agents-tool-calls)).
 
 Prefer to hold the client yourself? The same scan is one method call:
 
