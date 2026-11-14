@@ -121,7 +121,8 @@ const fromBuffer = await client.scanFile(buf, { filename: "invoice.pdf" });
 // Reject malicious files — throws MaliciousFileError
 const checked = await client.scanFile(file, { reject: ["Malicious", "Suspicious"] });
 
-// Deferred scan (returns immediately, poll for results)
+// Deferred scan (returns immediately, poll for results). scanFile only:
+// scanPayload ignores defer and always answers synchronously.
 const deferred = await client.scanFile(largeFile, { defer: true });
 if ("scanId" in deferred) {
   const poll = await client.getScan(deferred.scanId);
@@ -383,6 +384,8 @@ app.listen(3000);
 import {
   SurfaceError,
   AuthenticationError,
+  PermissionDeniedError,
+  PlanRequiredError,
   QuotaExceededError,
   RateLimitError,
   NotFoundError,
@@ -393,10 +396,16 @@ import {
 try {
   const result = await client.scanFile(file);
 } catch (err) {
-  if (err instanceof QuotaExceededError) {
+  if (err instanceof QuotaExceededError) {          // 402
     console.log("Monthly scan quota exhausted");
-  } else if (err instanceof RateLimitError) {
+  } else if (err instanceof PlanRequiredError) {    // 403 code=plan_required, or 402 for defer without async
+    console.log(`Not on the ${err.currentPlan} plan: ${err.feature}`);
+  } else if (err instanceof PermissionDeniedError) { // other 403: RBAC, blocked IP, payload scanning off
+    console.log(`Not allowed: ${err.message}`);
+  } else if (err instanceof RateLimitError) {       // 429
     console.log("Rate limit hit");
+  } else if (err instanceof AuthenticationError) {  // 401
+    console.log("Invalid API key");
   } else if (err instanceof SurfaceUnavailableError) {
     console.log("Surface unavailable; no verdict");
   } else if (err instanceof SurfaceError) {
@@ -405,9 +414,11 @@ try {
 }
 ```
 
+Every `SurfaceError` carries `statusCode`, `message` (the server's `error` text), `requestId`, and `code` (the server's `code` field, when it sends one). `PlanRequiredError` extends `PermissionDeniedError`, so one `instanceof PermissionDeniedError` check covers every "not allowed" answer.
+
 ## When Surface is unavailable
 
-Anything that is not a real answer from Surface throws `SurfaceUnavailableError` (a `SurfaceError`): the server could not be reached, the call's timeout ran out, it answered HTTP 500/502/503/504, or the body was not the JSON the SDK expects (an HTML proxy error page, say). `statusCode` is the HTTP status, or `0` when no response arrived; the message includes the server's `error` text when there was one. 429 still throws `RateLimitError` / `QuotaExceededError`, and other 4xx keep their typed errors.
+Anything that is not a real answer from Surface throws `SurfaceUnavailableError` (a `SurfaceError`): the server could not be reached, the call's timeout ran out, it answered HTTP 500/502/503/504, or the body was not the JSON the SDK expects (an HTML proxy error page, say). `statusCode` is the HTTP status, or `0` when no response arrived; the message includes the server's `error` text when there was one. 429 still throws `RateLimitError`, and other 4xx keep their typed errors.
 
 Each call has one 60-second budget covering every attempt and wait. Change it with `timeoutMs`:
 

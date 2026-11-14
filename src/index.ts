@@ -22,6 +22,8 @@ export {
   AuthenticationError,
   ValidationError,
   NotFoundError,
+  PermissionDeniedError,
+  PlanRequiredError,
   QuotaExceededError,
   RateLimitError,
   SurfaceUnavailableError,
