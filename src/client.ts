@@ -4,6 +4,8 @@ import {
   AuthenticationError,
   ValidationError,
   NotFoundError,
+  PermissionDeniedError,
+  PlanRequiredError,
   QuotaExceededError,
   RateLimitError,
   SurfaceUnavailableError,
@@ -189,6 +191,12 @@ export interface ActionContext {
 }
 
 export interface ScanFileOptions {
+  /**
+   * Queue the scan and return a {@link DeferredScanResponse} to poll with
+   * `getScan`. `scanFile` only.
+   * @deprecated for `scanPayload`: it has no effect there (payload scans
+   * always run synchronously).
+   */
   defer?: boolean;
   requestId?: string;
   filename?: string;
@@ -289,23 +297,40 @@ export class SurfaceClient {
     }
 
     const message = serverText ?? response.statusText;
+    const fields = isJson && body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    const code = str(fields.code);
+    const lower = message.toLowerCase();
+    // A plan wall: 403 code=plan_required, or the 402 that ?defer=true gets on
+    // a plan without async scanning (feature set, no code).
+    const planWall =
+      code === "plan_required" || "feature" in fields || lower.includes("not included on the");
     switch (status) {
       case 400:
         throw new ValidationError(message, requestId);
       case 401:
-      case 403:
         throw new AuthenticationError(message, requestId);
+      case 402:
+        if (planWall) {
+          throw new PlanRequiredError(message, requestId, code, 402, str(fields.feature), str(fields.current_plan));
+        }
+        // "monthly scan quota exceeded (N/M scans used)"
+        if (lower.includes("quota") || lower.includes("used up")) {
+          throw new QuotaExceededError(message, requestId);
+        }
+        throw new SurfaceError(message, status, requestId, code);
+      case 403:
+        if (planWall) {
+          throw new PlanRequiredError(message, requestId, code, 403, str(fields.feature), str(fields.current_plan));
+        }
+        throw new PermissionDeniedError(message, requestId, code);
       case 404:
         throw new NotFoundError(message, requestId);
-      case 429: {
-        const retryAfter = response.headers.get("retry-after");
-        if (retryAfter || message.toLowerCase().includes("rate")) {
-          throw new RateLimitError(message, requestId);
-        }
-        throw new QuotaExceededError(message, requestId);
-      }
+      case 429:
+        // Every Surface 429 is a rate limit; quota exhaustion is 402.
+        throw new RateLimitError(message, requestId);
       default:
-        throw new SurfaceError(message, status, requestId);
+        throw new SurfaceError(message, status, requestId, code);
     }
   }
 
@@ -515,7 +540,9 @@ export class SurfaceClient {
    *
    * @param payload - Raw content as Buffer, Uint8Array, or string
    * @param label - Optional label for the payload (e.g. "api-request"). Content type is auto-detected.
-   * @param options - Scan options (defer, requestId, reject)
+   * @param options - Scan options (requestId, reject, context). `defer` is
+   *   deprecated here and has no effect: payload scans always run
+   *   synchronously, so `?defer=true` is not sent.
    */
   async scanPayload(
     payload: Buffer | Uint8Array | string,
@@ -561,12 +588,6 @@ export class SurfaceClient {
 
     const body = JSON.stringify(reqBody);
 
-    // Build query params
-    const params = new URLSearchParams();
-    if (options?.defer) {
-      params.set("defer", "true");
-    }
-    const query = params.toString();
 
     // The backend derives the request ID from the X-Request-ID header.
     const requestHeaders: Record<string, string> = {};
@@ -574,7 +595,8 @@ export class SurfaceClient {
       requestHeaders["X-Request-ID"] = options.requestId;
     }
 
-    const reply = await this.scanRequest(`/scan/payload${query ? `?${query}` : ""}`, {
+    // options.defer is ignored: the payload endpoint has no deferred path.
+    const reply = await this.scanRequest("/scan/payload", {
       method: "POST",
       body,
       headers: { ...requestHeaders, "Content-Type": "application/json" },
